@@ -66,24 +66,6 @@ func (h *Hub) Broadcast(msg interface{}) {
 	}
 }
 
-func (h *Hub) BroadcastRaw(data []byte) {
-	h.mu.Lock()
-	h.currentState = data
-	h.mu.Unlock()
-
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	for client := range h.clients {
-		select {
-		case client.send <- data:
-		default:
-			close(client.send)
-			delete(h.clients, client)
-		}
-	}
-}
-
 func (h *Hub) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

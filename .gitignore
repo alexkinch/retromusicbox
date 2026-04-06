@@ -6,6 +6,7 @@ data/box.db-wal
 data/box.db-shm
 web/channel/node_modules/
 web/channel/dist/
+cmd/boxd/static/
 *.exe
 *.dll
 *.so

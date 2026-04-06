@@ -86,7 +86,8 @@ func (s *Service) DownloadThumbnail(youtubeID, thumbnailURL string) (string, err
 		return thumbPath, nil
 	}
 
-	resp, err := http.Get(thumbnailURL)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(thumbnailURL)
 	if err != nil {
 		return "", err
 	}
