@@ -1,6 +1,10 @@
-import React, { useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
+
+const ENTRIES_PER_PAGE = 7
 
 export default function FillerCatalogue({ catalogue, phoneNumber }) {
+  const [page, setPage] = useState(0)
+
   const rows = useMemo(() => {
     if (!catalogue) return []
     return catalogue.map((entry) => ({
@@ -10,37 +14,49 @@ export default function FillerCatalogue({ catalogue, phoneNumber }) {
     }))
   }, [catalogue])
 
-  // Duplicate rows for seamless scroll loop
-  const allRows = [...rows, ...rows]
+  const totalPages = Math.max(Math.ceil(rows.length / ENTRIES_PER_PAGE), 1)
+
+  // Auto-advance pages
+  useEffect(() => {
+    if (totalPages <= 1) return
+    const interval = setInterval(() => {
+      setPage((p) => (p + 1) % totalPages)
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [totalPages])
+
+  const pageRows = rows.slice(
+    page * ENTRIES_PER_PAGE,
+    (page + 1) * ENTRIES_PER_PAGE
+  )
 
   return (
     <div className="filler-catalogue">
       <div className="catalogue-header">
-        <h2>THE BOX CATALOGUE</h2>
-        <div className="catalogue-columns">
-          <span className="col-code">CODE</span>
-          <span className="col-artist">ARTIST</span>
-          <span className="col-title">TITLE</span>
-        </div>
+        <h2>SELECTION NUMBER</h2>
       </div>
 
-      <div className="catalogue-scroll-container">
-        <div className="catalogue-scroll" style={{
-          animationDuration: `${Math.max(rows.length * 2, 30)}s`
-        }}>
-          {allRows.map((row, i) => (
-            <div key={i} className="catalogue-row">
-              <span className="col-code">{row.code}</span>
-              <span className="col-artist">{row.artist}</span>
-              <span className="col-title">{row.title}</span>
+      <div className="catalogue-body">
+        {pageRows.map((row, i) => (
+          <div key={`${page}-${i}`} className="catalogue-entry">
+            <div className="catalogue-code-tab">
+              <span>{row.code}</span>
             </div>
-          ))}
-        </div>
+            <div className="catalogue-entry-info">
+              <div className="catalogue-entry-artist">{row.artist}</div>
+              <div className="catalogue-entry-title">{row.title}</div>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="catalogue-footer">
-        {phoneNumber && <span>CALL {phoneNumber}</span>}
-        <span className="catalogue-cta">REQUEST YOUR VIDEO NOW!</span>
+        <div className="catalogue-footer-info">
+          {phoneNumber && (
+            <>50p/min<br/>AT ALL TIMES<br/>UNDER 18? Get Parents permission</>
+          )}
+        </div>
+        <div className="catalogue-footer-cta">Call Now</div>
       </div>
     </div>
   )

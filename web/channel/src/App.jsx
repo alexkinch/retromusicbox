@@ -1,13 +1,17 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { useBoxSocket } from './hooks/useBoxSocket'
 import VideoPlayer from './components/VideoPlayer'
-import DigitDisplay from './components/DigitDisplay'
+import BoxLogo from './components/BoxLogo'
+import NowPlaying from './components/NowPlaying'
+import BottomTicker from './components/BottomTicker'
+import RequestDigits from './components/RequestDigits'
 import FillerIdent from './components/FillerIdent'
 import FillerCatalogue from './components/FillerCatalogue'
 import Transition from './components/Transition'
 import Scanlines from './components/Scanlines'
 
 export default function App() {
+  const [started, setStarted] = useState(false)
   const [mode, setMode] = useState('filler') // filler | playing | transition
   const [video, setVideo] = useState(null)
   const [queue, setQueue] = useState([])
@@ -16,8 +20,9 @@ export default function App() {
   const [catalogue, setCatalogue] = useState([])
   const [phoneNumber, setPhoneNumber] = useState('')
   const [transitionVideo, setTransitionVideo] = useState(null)
+  const [callers, setCallers] = useState([])
 
-  // Fetch catalogue on mount so the digit display always has entries to cycle
+  // Fetch catalogue on mount so overlays always have entries
   useEffect(() => {
     fetch('/api/catalogue?limit=999')
       .then((r) => r.json())
@@ -57,6 +62,11 @@ export default function App() {
         setMode('filler')
         setFillerMode('ident')
         break
+
+      // Phone request digit stream from IVR
+      case 'dial_update':
+        setCallers(msg.callers || [])
+        break
     }
   }, [])
 
@@ -70,42 +80,72 @@ export default function App() {
     sendMessage({ type: 'video_error', error })
   }, [sendMessage])
 
+  if (!started) {
+    return (
+      <div className="channel" onClick={() => setStarted(true)} style={{ cursor: 'pointer' }}>
+        <div className="click-to-start">
+          <div className="ident-title" style={{ fontSize: '48px' }}>THE BOX</div>
+          <div style={{
+            fontFamily: "'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif",
+            fontSize: '14px',
+            fontWeight: 'bold',
+            color: '#00FFFF',
+            marginTop: '20px',
+          }}>CLICK TO START</div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="channel">
       {!connected && (
         <div className="connecting-indicator">CONNECTING...</div>
       )}
 
-      <div className="channel-main">
-        {mode === 'playing' && video && (
-          <VideoPlayer
-            video={video}
-            onEnded={handleVideoEnded}
-            onError={handleVideoError}
-          />
-        )}
+      {/* Layer 0: Video (full frame) */}
+      {mode === 'playing' && video && (
+        <VideoPlayer
+          video={video}
+          onEnded={handleVideoEnded}
+          onError={handleVideoError}
+        />
+      )}
 
-        {mode === 'filler' && fillerMode === 'ident' && (
-          <FillerIdent phoneNumber={phoneNumber} />
-        )}
+      {/* Layer 1: Content screens (filler/transition — replace video entirely) */}
+      {mode !== 'playing' && (
+        <div className="channel-content">
+          {mode === 'filler' && fillerMode === 'ident' && (
+            <FillerIdent phoneNumber={phoneNumber} />
+          )}
 
-        {mode === 'filler' && fillerMode === 'catalogue_scroll' && (
-          <FillerCatalogue catalogue={catalogue} phoneNumber={phoneNumber} />
-        )}
+          {mode === 'filler' && fillerMode === 'catalogue_scroll' && (
+            <FillerCatalogue catalogue={catalogue} phoneNumber={phoneNumber} />
+          )}
 
-        {mode === 'transition' && transitionVideo && (
-          <Transition video={transitionVideo} />
-        )}
+          {mode === 'transition' && transitionVideo && (
+            <Transition video={transitionVideo} />
+          )}
+        </div>
+      )}
+
+      {/* Layer 2: Overlays (always on top) */}
+      <div className="channel-overlays">
+        <BoxLogo />
+
+        <NowPlaying video={video} mode={mode} />
+
+        <BottomTicker
+          catalogue={catalogue}
+          queue={queue}
+          phoneNumber={phoneNumber}
+          mode={mode}
+        />
+
+        <RequestDigits callers={callers} />
       </div>
 
-      <DigitDisplay
-        video={mode === 'playing' ? video : null}
-        queue={queue}
-        phoneNumber={phoneNumber}
-        positionTotal={positionTotal}
-        catalogue={catalogue}
-      />
-
+      {/* Layer 3: Scanlines (topmost) */}
       <Scanlines />
     </div>
   )

@@ -65,5 +65,13 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	// Additive column migrations (ignore "duplicate column" errors)
+	optionalColumns := []string{
+		`ALTER TABLE requests ADD COLUMN vote_count INTEGER DEFAULT 1`,
+	}
+	for _, m := range optionalColumns {
+		db.Exec(m) // ignore error if column already exists
+	}
+
 	return nil
 }

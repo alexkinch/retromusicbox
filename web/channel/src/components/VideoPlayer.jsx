@@ -1,40 +1,66 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect } from 'react'
 
 export default function VideoPlayer({ video, onEnded, onError }) {
   const videoRef = useRef(null)
-  const [opacity, setOpacity] = useState(0)
+  const containerRef = useRef(null)
+  const playPromiseRef = useRef(null)
 
   useEffect(() => {
     const el = videoRef.current
     if (!el || !video?.media_url) return
 
-    el.src = video.media_url
-    el.load()
+    // Fade out before loading
+    if (containerRef.current) containerRef.current.style.opacity = '0'
 
-    el.muted = true
-    const playPromise = el.play()
-    if (playPromise) {
-      playPromise.then(() => {
-        el.muted = false
-      }).catch((err) => {
-        console.error('Autoplay failed:', err)
-        onError?.('Autoplay failed: ' + err.message)
-      })
+    // If a previous play() is still pending, wait for it to settle before loading new source
+    const load = () => {
+      el.src = video.media_url
+      el.muted = true
+
+      // Wait for the video to be ready before playing
+      const onCanPlay = () => {
+        el.removeEventListener('canplay', onCanPlay)
+        const promise = el.play()
+        playPromiseRef.current = promise
+        if (promise) {
+          promise.then(() => {
+            playPromiseRef.current = null
+            if (containerRef.current) containerRef.current.style.opacity = '1'
+            setTimeout(() => { el.muted = false }, 200)
+          }).catch((err) => {
+            playPromiseRef.current = null
+            console.error('Autoplay failed:', err)
+            if (containerRef.current) containerRef.current.style.opacity = '1'
+          })
+        }
+      }
+      el.addEventListener('canplay', onCanPlay)
+      el.load()
     }
 
-    // Fade in
-    setOpacity(0)
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setOpacity(1))
-    })
+    // Wait for any pending play() to resolve before swapping source
+    if (playPromiseRef.current) {
+      playPromiseRef.current
+        .then(load)
+        .catch(load)
+    } else {
+      load()
+    }
+
+    return () => {
+      // Cleanup: don't call pause directly, let the unmount handle it
+    }
   }, [video?.media_url])
 
   return (
-    <div className="video-player" style={{ opacity, transition: 'opacity 0.5s ease' }}>
+    <div
+      ref={containerRef}
+      className="video-player"
+      style={{ opacity: 0, transition: 'opacity 0.5s ease' }}
+    >
       <video
         ref={videoRef}
         className="video-element"
-        autoPlay
         playsInline
         onEnded={onEnded}
         onError={() => onError?.('Failed to load video')}

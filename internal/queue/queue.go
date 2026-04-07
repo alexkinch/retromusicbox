@@ -6,49 +6,67 @@ import (
 	"time"
 )
 
+// queueOrder defines how queued/ready items are sorted.
+// Most-voted videos play first; ties broken by arrival time.
+const queueOrder = `vote_count DESC, id ASC`
+
 type Request struct {
-	ID            int64  `json:"id"`
-	CatalogueCode string `json:"catalogue_code"`
-	CallerID      string `json:"caller_id,omitempty"`
-	RequestedAt   string `json:"requested_at"`
-	Status        string `json:"status"`
+	ID            int64   `json:"id"`
+	CatalogueCode string  `json:"catalogue_code"`
+	CallerID      string  `json:"caller_id,omitempty"`
+	RequestedAt   string  `json:"requested_at"`
+	Status        string  `json:"status"`
 	PlayedAt      *string `json:"played_at,omitempty"`
+	VoteCount     int     `json:"vote_count"`
 }
 
 type QueueItem struct {
-	Code   string `json:"code"`
-	Artist string `json:"artist"`
-	Title  string `json:"title"`
+	Code      string `json:"code"`
+	Artist    string `json:"artist"`
+	Title     string `json:"title"`
+	VoteCount int    `json:"vote_count"`
 }
 
 type Service struct {
-	db                      *sql.DB
+	db                          *sql.DB
 	maxRequestsPerCallerPerHour int
-	allowDuplicate          bool
+	allowDuplicate              bool
 }
 
 func NewService(db *sql.DB, maxPerHour int, allowDuplicate bool) *Service {
 	return &Service{
-		db:                      db,
+		db:                          db,
 		maxRequestsPerCallerPerHour: maxPerHour,
-		allowDuplicate:          allowDuplicate,
+		allowDuplicate:              allowDuplicate,
 	}
 }
 
 func (s *Service) Add(catalogueCode, callerID string) (*Request, int, error) {
-	// Check for duplicate in active queue
+	// Vote stacking: if this video is already queued, increment its vote count
 	if !s.allowDuplicate {
 		var existingID int64
-		var pos int
 		err := s.db.QueryRow(
-			`SELECT r.id, (SELECT COUNT(*) FROM requests r2
-			 WHERE r2.status IN ('queued','ready','playing') AND r2.id <= r.id) as pos
-			 FROM requests r
-			 WHERE r.catalogue_code = ? AND r.status IN ('queued', 'ready', 'playing')`,
+			`SELECT id FROM requests
+			 WHERE catalogue_code = ? AND status IN ('queued', 'ready', 'fetching')`,
 			catalogueCode,
-		).Scan(&existingID, &pos)
+		).Scan(&existingID)
 		if err == nil {
-			return &Request{ID: existingID, CatalogueCode: catalogueCode, Status: "queued"}, pos, nil
+			// Bump vote count
+			_, err = s.db.Exec(
+				`UPDATE requests SET vote_count = vote_count + 1 WHERE id = ?`,
+				existingID,
+			)
+			if err != nil {
+				return nil, 0, fmt.Errorf("bump vote count: %w", err)
+			}
+			// Recalculate position after vote bump (ordering may have changed)
+			pos := s.positionOf(existingID)
+			var req Request
+			s.db.QueryRow(
+				`SELECT id, catalogue_code, caller_id, requested_at, status, vote_count
+				 FROM requests WHERE id = ?`, existingID,
+			).Scan(&req.ID, &req.CatalogueCode, &req.CallerID, &req.RequestedAt, &req.Status, &req.VoteCount)
+			return &req, pos, nil
 		}
 		if err != sql.ErrNoRows {
 			return nil, 0, err
@@ -72,7 +90,7 @@ func (s *Service) Add(catalogueCode, callerID string) (*Request, int, error) {
 	}
 
 	result, err := s.db.Exec(
-		`INSERT INTO requests (catalogue_code, caller_id) VALUES (?, ?)`,
+		`INSERT INTO requests (catalogue_code, caller_id, vote_count) VALUES (?, ?, 1)`,
 		catalogueCode, callerID,
 	)
 	if err != nil {
@@ -80,28 +98,42 @@ func (s *Service) Add(catalogueCode, callerID string) (*Request, int, error) {
 	}
 
 	id, _ := result.LastInsertId()
-
-	// Get position
-	var position int
-	s.db.QueryRow(
-		`SELECT COUNT(*) FROM requests WHERE status IN ('queued', 'ready', 'playing') AND id <= ?`, id,
-	).Scan(&position)
+	position := s.positionOf(id)
 
 	req := &Request{
 		ID:            id,
 		CatalogueCode: catalogueCode,
 		CallerID:      callerID,
 		Status:        "queued",
+		VoteCount:     1,
 	}
 
 	return req, position, nil
 }
 
+// positionOf returns the 1-based position of a request in the active queue.
+func (s *Service) positionOf(id int64) int {
+	var position int
+	// Count how many active items would appear before this one in queue order
+	s.db.QueryRow(
+		`SELECT COUNT(*) + 1 FROM requests
+		 WHERE status IN ('queued', 'ready', 'playing')
+		   AND id != ?
+		   AND (
+		     vote_count > (SELECT vote_count FROM requests WHERE id = ?)
+		     OR (vote_count = (SELECT vote_count FROM requests WHERE id = ?) AND id < ?)
+		   )`,
+		id, id, id, id,
+	).Scan(&position)
+	return position
+}
+
 func (s *Service) GetActive() ([]Request, error) {
 	rows, err := s.db.Query(
-		`SELECT id, catalogue_code, caller_id, requested_at, status, played_at
-		 FROM requests WHERE status IN ('queued', 'ready', 'fetching', 'playing')
-		 ORDER BY id ASC`,
+		fmt.Sprintf(
+			`SELECT id, catalogue_code, caller_id, requested_at, status, played_at, vote_count
+			 FROM requests WHERE status IN ('queued', 'ready', 'fetching', 'playing')
+			 ORDER BY %s`, queueOrder),
 	)
 	if err != nil {
 		return nil, err
@@ -112,7 +144,7 @@ func (s *Service) GetActive() ([]Request, error) {
 	for rows.Next() {
 		var r Request
 		var callerID, playedAt sql.NullString
-		if err := rows.Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status, &playedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status, &playedAt, &r.VoteCount); err != nil {
 			return nil, err
 		}
 		if callerID.Valid {
@@ -128,10 +160,11 @@ func (s *Service) GetActive() ([]Request, error) {
 
 func (s *Service) GetActiveWithDetails() ([]QueueItem, error) {
 	rows, err := s.db.Query(
-		`SELECT r.catalogue_code, c.artist, c.title
-		 FROM requests r JOIN catalogue c ON r.catalogue_code = c.code
-		 WHERE r.status IN ('queued', 'ready')
-		 ORDER BY r.id ASC`,
+		fmt.Sprintf(
+			`SELECT r.catalogue_code, c.artist, c.title, r.vote_count
+			 FROM requests r JOIN catalogue c ON r.catalogue_code = c.code
+			 WHERE r.status IN ('queued', 'ready')
+			 ORDER BY %s`, queueOrder),
 	)
 	if err != nil {
 		return nil, err
@@ -141,7 +174,7 @@ func (s *Service) GetActiveWithDetails() ([]QueueItem, error) {
 	var items []QueueItem
 	for rows.Next() {
 		var item QueueItem
-		if err := rows.Scan(&item.Code, &item.Artist, &item.Title); err != nil {
+		if err := rows.Scan(&item.Code, &item.Artist, &item.Title, &item.VoteCount); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -153,10 +186,11 @@ func (s *Service) GetNext() (*Request, error) {
 	var r Request
 	var callerID sql.NullString
 	err := s.db.QueryRow(
-		`SELECT id, catalogue_code, caller_id, requested_at, status
-		 FROM requests WHERE status IN ('queued', 'ready')
-		 ORDER BY id ASC LIMIT 1`,
-	).Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status)
+		fmt.Sprintf(
+			`SELECT id, catalogue_code, caller_id, requested_at, status, vote_count
+			 FROM requests WHERE status IN ('queued', 'ready')
+			 ORDER BY %s LIMIT 1`, queueOrder),
+	).Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status, &r.VoteCount)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -171,9 +205,10 @@ func (s *Service) GetNext() (*Request, error) {
 
 func (s *Service) GetTopN(n int) ([]Request, error) {
 	rows, err := s.db.Query(
-		`SELECT id, catalogue_code, caller_id, requested_at, status, played_at
-		 FROM requests WHERE status IN ('queued', 'ready')
-		 ORDER BY id ASC LIMIT ?`, n,
+		fmt.Sprintf(
+			`SELECT id, catalogue_code, caller_id, requested_at, status, played_at, vote_count
+			 FROM requests WHERE status IN ('queued', 'ready')
+			 ORDER BY %s LIMIT ?`, queueOrder), n,
 	)
 	if err != nil {
 		return nil, err
@@ -184,7 +219,7 @@ func (s *Service) GetTopN(n int) ([]Request, error) {
 	for rows.Next() {
 		var r Request
 		var callerID, playedAt sql.NullString
-		if err := rows.Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status, &playedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.CatalogueCode, &callerID, &r.RequestedAt, &r.Status, &playedAt, &r.VoteCount); err != nil {
 			return nil, err
 		}
 		if callerID.Valid {

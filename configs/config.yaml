@@ -31,6 +31,6 @@ database:
   path: "data/box.db"
 
 channel:
-  width: 1280
-  height: 720
+  width: 720
+  height: 576
   phone_number_display: "0900 THE BOX"

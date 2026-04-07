@@ -1,11 +1,15 @@
 /* ===== Fonts ===== */
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+/* Arial Bold with forced aliasing to simulate 90s broadcast CG output */
 
 /* ===== Base ===== */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* Kill smooth anti-aliasing — force aliased/pixelated text rendering */
+  -webkit-font-smoothing: none;
+  -moz-osx-font-smoothing: unset;
+  font-smooth: never;
 }
 
 html, body, #root {
@@ -13,157 +17,283 @@ html, body, #root {
   height: 100%;
   overflow: hidden;
   background: #000;
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   color: #fff;
 }
 
+/* ===== PAL SD Frame (720x576, 4:3) ===== */
 .channel {
   position: relative;
-  width: 1280px;
-  height: 720px;
+  width: 720px;
+  height: 576px;
   overflow: hidden;
   background: #000;
+  margin: 0 auto;
+  /* Subtle brightness/contrast to simulate CRT output */
+  filter: contrast(1.05) brightness(0.95) saturate(1.1);
 }
 
-.channel-main {
+/* ===== Safe Zone Constants =====
+   Left/Right: 20px
+   Top: 12px
+   Bottom: 18px
+   ================================ */
+
+/* ===== Video Layer (fills entire frame) ===== */
+.video-player {
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  bottom: 96px;
-  overflow: hidden;
-}
-
-/* ===== Connecting indicator ===== */
-.connecting-indicator {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 100;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 10px;
-  color: #FF4444;
-  animation: blink 1s step-end infinite;
-}
-
-@keyframes blink {
-  50% { opacity: 0; }
-}
-
-/* ===== Video Player ===== */
-.video-player {
   width: 100%;
   height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  z-index: 0;
   background: #000;
 }
 
 .video-element {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   background: #000;
 }
 
-/* ===== Digit Display / Info Bar ===== */
-.digit-display {
+/* ===== Content Layer (filler/transition screens) ===== */
+.channel-content {
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
-  right: 0;
-  height: 96px;
-  background: rgba(0, 0, 0, 0.9);
-  border-top: 2px solid #FFD700;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 0 20px;
-  z-index: 50;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
 }
 
-.digit-display-row {
+/* ===== Overlay Layer (always on top of video) ===== */
+.channel-overlays {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ===== Box Logo (top-right, title safe) ===== */
+.box-logo {
+  position: absolute;
+  top: 30px;
+  right: 36px;
+  z-index: 15;
+}
+
+.box-logo-img {
+  width: 70px;
+  height: auto;
+  display: block;
+  opacity: 0.9;
+}
+
+/* ===== Catalogue Code Badge (next to logo) ===== */
+.code-badge {
+  position: absolute;
+  top: 32px;
+  right: 110px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.code-badge-arrow {
+  color: #fff;
+  font-size: 14px;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.code-badge-number {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  color: #000;
+  background: #fff;
+  padding: 3px 5px 2px;
+  font-weight: bold;
+}
+
+/* ===== Now Playing Caption (top-left, transient) ===== */
+.now-playing {
+  position: absolute;
+  top: 30px;
+  left: 36px;
+  z-index: 15;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 8px 12px;
+  max-width: 360px;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.now-playing.visible {
+  opacity: 1;
+}
+
+.now-playing-artist {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 18px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+  margin-bottom: 2px;
+}
+
+.now-playing-title {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  font-style: italic;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+  margin-bottom: 2px;
+}
+
+.now-playing-label {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  color: #ccc;
+  text-shadow: 1px 1px 0 #000;
+}
+
+/* ===== Bottom Ticker (two lines, static swap over video) ===== */
+.bottom-ticker {
+  position: absolute;
+  bottom: 18px;
+  left: 20px;
+  right: 20px;
+  z-index: 15;
+}
+
+.ticker-line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 28px;
+  line-height: 28px;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 22px;
+  font-weight: bold;
+  /* Heavy black outline + subtle colour bleed — simulates genlock keying */
+  text-shadow:
+    2px 2px 0 #000,
+    -1px -1px 0 #000,
+    1px -1px 0 #000,
+    -1px 1px 0 #000,
+    2px 0 0 #000,
+    0 2px 0 #000,
+    -2px 0 0 #000,
+    0 -2px 0 #000;
+  /* Force pixelated rendering */
+  -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.3);
+}
+
+.ticker-code {
+  color: #fff;
+}
+
+.ticker-sep {
+  color: #00BFFF;
+}
+
+.ticker-artist {
+  color: #00BFFF;
+}
+
+.ticker-title {
+  color: #00BFFF;
+}
+
+.ticker-promo {
+  color: #FFD700;
+}
+
+/* ===== Request Digits (bottom-left, over ticker) ===== */
+.request-digits {
+  position: absolute;
+  bottom: 80px;
+  left: 20px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.request-caller {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
+  height: 26px;
 }
 
-.digit-display-now {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 13px;
-}
-
-.digit-display-now .label {
-  color: #FFD700;
-  white-space: nowrap;
-}
-
-.digit-display-now .code {
-  color: #FFD700;
-  font-size: 16px;
-}
-
-.digit-display-now .info {
-  color: #fff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.digit-display-now .queue-count {
-  color: #00FFFF;
-  font-size: 10px;
-  white-space: nowrap;
-  margin-left: auto;
-}
-
-.digit-display-next {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 11px;
-  overflow: hidden;
-}
-
-.digit-display-next .label {
-  color: #00FFFF;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.catalogue-label {
-  color: #FFD700;
+.request-phone-icon {
+  width: 22px;
+  height: 22px;
+  background: #000;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 14px;
-  white-space: nowrap;
+  color: #FFD700;
   flex-shrink: 0;
 }
 
-.catalogue-info {
-  color: #fff;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
+.request-digits-text {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 22px;
+  font-weight: bold;
+  color: #FFD700;
+  text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  letter-spacing: 2px;
 }
 
-/* ===== Marquee ===== */
-.marquee-container {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
+.request-result {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 22px;
+  font-weight: bold;
+  text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
 }
 
-.marquee-content {
-  display: inline-block;
-  white-space: nowrap;
-  animation: marquee 30s linear infinite;
-  color: #00FFFF;
+.request-result.success {
+  color: #FFD700;
 }
 
-@keyframes marquee {
-  0% { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
+.request-result.fail {
+  color: #FF4444;
+}
+
+/* ===== Click to Start ===== */
+.click-to-start {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #111 0%, #000 70%);
+}
+
+/* ===== Connecting Indicator ===== */
+.connecting-indicator {
+  position: absolute;
+  top: 12px;
+  right: 20px;
+  z-index: 100;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 10px;
+  font-weight: bold;
+  color: #FF4444;
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 /* ===== Filler: Ident ===== */
@@ -180,8 +310,8 @@ html, body, #root {
 
 .ident-glow {
   position: absolute;
-  width: 500px;
-  height: 500px;
+  width: 400px;
+  height: 400px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(255, 215, 0, 0.15) 0%, transparent 70%);
   animation: pulse-glow 3s ease-in-out infinite;
@@ -207,10 +337,10 @@ html, body, #root {
 }
 
 .ident-line {
-  width: 600px;
+  width: 500px;
   height: 2px;
   background: linear-gradient(90deg, transparent, #FFD700, transparent);
-  margin: 40px 0;
+  margin: 30px 0;
   opacity: 0.3;
   animation: rotate-line 10s linear infinite;
 }
@@ -224,40 +354,44 @@ html, body, #root {
 }
 
 .ident-title {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 72px;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 64px;
+  font-weight: bold;
   color: #FFD700;
   text-shadow:
     0 0 20px rgba(255, 215, 0, 0.8),
     0 0 40px rgba(255, 215, 0, 0.4),
     0 0 80px rgba(255, 215, 0, 0.2);
-  letter-spacing: 8px;
+  letter-spacing: 6px;
   position: relative;
   z-index: 1;
 }
 
 .ident-subtitle {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   font-size: 14px;
+  font-weight: bold;
   color: #fff;
-  letter-spacing: 12px;
-  margin-top: 12px;
+  letter-spacing: 8px;
+  margin-top: 10px;
   opacity: 0.7;
 }
 
 .ident-phone {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   font-size: 20px;
+  font-weight: bold;
   color: #fff;
-  margin-top: 40px;
-  letter-spacing: 4px;
+  margin-top: 30px;
+  letter-spacing: 3px;
 }
 
 .ident-cta {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   font-size: 14px;
+  font-weight: bold;
   color: #00FFFF;
-  margin-top: 20px;
+  margin-top: 14px;
   animation: pulse-cta 2s ease-in-out infinite;
 }
 
@@ -266,93 +400,121 @@ html, body, #root {
   50% { opacity: 0.4; }
 }
 
-/* ===== Filler: Catalogue Scroll ===== */
+/* ===== Filler: Catalogue / SELECTION NUMBER screen ===== */
 .filler-catalogue {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #000011;
-  font-family: 'Courier New', monospace;
+  background: linear-gradient(170deg, #0c0c3a 0%, #060620 50%, #02020e 100%);
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
 }
 
 .catalogue-header {
-  padding: 16px 24px 8px;
-  border-bottom: 2px solid #FFD700;
+  padding: 12px 20px 8px;
   flex-shrink: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
 }
 
 .catalogue-header h2 {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 18px;
-  color: #FFD700;
-  margin-bottom: 12px;
-}
-
-.catalogue-columns {
-  display: grid;
-  grid-template-columns: 80px 240px 1fr;
-  gap: 16px;
-  font-size: 12px;
-  color: #00FFFF;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 24px;
   font-weight: bold;
-  padding-bottom: 8px;
+  color: #fff;
+  text-shadow: 2px 2px 0 #000;
+  letter-spacing: 2px;
 }
 
-.catalogue-scroll-container {
+.catalogue-body {
   flex: 1;
-  overflow: hidden;
-  position: relative;
-}
-
-.catalogue-scroll {
-  animation: scroll-up linear infinite;
-}
-
-@keyframes scroll-up {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(-50%); }
-}
-
-.catalogue-row {
-  display: grid;
-  grid-template-columns: 80px 240px 1fr;
-  gap: 16px;
-  padding: 6px 24px;
-  font-size: 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.catalogue-row .col-code {
-  color: #FFD700;
-  font-weight: bold;
-}
-
-.catalogue-row .col-artist {
-  color: #fff;
-}
-
-.catalogue-row .col-title {
-  color: #aaa;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.catalogue-footer {
-  padding: 12px 24px;
-  border-top: 2px solid #FFD700;
   display: flex;
-  justify-content: space-between;
-  font-family: 'Press Start 2P', monospace;
-  font-size: 11px;
-  color: #fff;
+  flex-direction: column;
+  padding: 4px 20px;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.catalogue-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+}
+
+.catalogue-code-tab {
+  width: 70px;
+  height: 36px;
+  background: linear-gradient(180deg, #444 0%, #333 40%, #222 100%);
+  border: 1px solid #555;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-.catalogue-cta {
-  color: #00FFFF;
-  animation: pulse-cta 2s ease-in-out infinite;
+.catalogue-code-tab span {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 20px;
+  font-weight: bold;
+  color: #FFD700;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.catalogue-entry-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.catalogue-entry-artist {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalogue-entry-title {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 15px;
+  font-style: italic;
+  color: #FFD700;
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalogue-footer {
+  padding: 8px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.catalogue-footer-info {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 12px;
+  font-weight: bold;
+  color: #ccc;
+  line-height: 1.4;
+}
+
+.catalogue-footer-cta {
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 18px;
+  font-weight: bold;
+  color: #FFD700;
+  text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
 }
 
 /* ===== Transition ===== */
@@ -373,11 +535,12 @@ html, body, #root {
 }
 
 .transition-logo {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   font-size: 36px;
+  font-weight: bold;
   color: #FFD700;
   text-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
-  margin-bottom: 40px;
+  margin-bottom: 30px;
   animation: flash 0.5s ease-in-out 2;
 }
 
@@ -390,31 +553,34 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .transition-label {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 14px;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  font-weight: bold;
   color: #00FFFF;
-  letter-spacing: 6px;
+  letter-spacing: 4px;
 }
 
 .transition-code {
-  font-family: 'Press Start 2P', monospace;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
   font-size: 28px;
+  font-weight: bold;
   color: #FFD700;
 }
 
 .transition-title {
-  font-family: 'Press Start 2P', monospace;
-  font-size: 14px;
+  font-family: 'Teletext regular', TeleText, TIFAX, Arial, Helvetica, sans-serif;
+  font-size: 16px;
+  font-weight: bold;
   color: #fff;
   text-align: center;
-  max-width: 800px;
+  max-width: 600px;
 }
 
-/* ===== Scanlines ===== */
+/* ===== CRT Effects ===== */
 .scanlines {
   position: absolute;
   top: 0;
@@ -423,11 +589,29 @@ html, body, #root {
   bottom: 0;
   pointer-events: none;
   z-index: 90;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(0, 0, 0, 0.04) 2px,
-    rgba(0, 0, 0, 0.04) 4px
+  /* Stronger scanlines */
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 1px,
+      rgba(0, 0, 0, 0.15) 1px,
+      rgba(0, 0, 0, 0.15) 2px
+    );
+}
+
+/* Vignette darkening at edges — CRT tube effect */
+.scanlines::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(
+    ellipse 120% 120% at 50% 50%,
+    transparent 50%,
+    rgba(0, 0, 0, 0.35) 80%,
+    rgba(0, 0, 0, 0.7) 100%
   );
 }
