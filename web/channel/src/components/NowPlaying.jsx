@@ -24,12 +24,12 @@ export default function NowPlaying({ video, mode }) {
     }
   }, [video?.catalogue_code, mode])
 
-  if (mode !== 'playing' || !video || video.is_ad) return null
+  if (mode !== 'playing' || !video || video.is_ad || !visible) return null
 
   return (
     <>
       {/* Now Playing caption — top-left */}
-      <div className={`now-playing ${visible ? 'visible' : ''}`}>
+      <div className="now-playing visible">
         <div className="now-playing-artist">{video.artist}</div>
         <div className="now-playing-title">{video.title}</div>
         {video.label && (
@@ -38,7 +38,7 @@ export default function NowPlaying({ video, mode }) {
       </div>
 
       {/* Code badge — top-right next to logo */}
-      <div className={`code-badge ${visible ? 'visible' : ''}`}>
+      <div className="code-badge visible">
         <span className="code-badge-arrow">&#x2192;</span>
         <span className="code-badge-number">{video.catalogue_code}</span>
       </div>

@@ -119,6 +119,29 @@ func (s *Service) UpdateYtDlp() {
 	}
 }
 
+// FetchPlaylistVideoIDs runs yt-dlp in flat mode to list the video IDs in a
+// playlist (or any yt-dlp-supported URL that expands into multiple entries)
+// without downloading anything. Returns IDs in playlist order.
+func (s *Service) FetchPlaylistVideoIDs(playlistURL string) ([]string, error) {
+	cmd := exec.Command(s.cfg.YtDlpPath,
+		"--flat-playlist",
+		"--print", "id",
+		playlistURL,
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("yt-dlp playlist listing failed: %w", err)
+	}
+	var ids []string
+	for _, line := range strings.Split(string(output), "\n") {
+		id := strings.TrimSpace(line)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
 func (s *Service) FetchVideoInfo(youtubeID string) (*VideoInfo, error) {
 	cmd := exec.Command(s.cfg.YtDlpPath, "--dump-json", "--no-download",
 		fmt.Sprintf("https://www.youtube.com/watch?v=%s", youtubeID))
@@ -203,15 +226,21 @@ func (s *Service) FetchAndTranscode(youtubeID string) error {
 	// Transcode
 	log.Printf("[fetcher] transcoding %s", youtubeID)
 	tmpPath := readyPath + ".tmp"
-	cmd := exec.Command("ffmpeg", "-y", "-i", cachePath,
+	args := []string{"-y", "-i", cachePath,
 		"-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
 		"-r", "25",
 		"-c:v", "libx264", "-profile:v", "high", "-level", "4.1", "-preset", "fast", "-crf", "20",
 		"-movflags", "+faststart",
 		"-c:a", "aac", "-ar", "48000", "-ac", "2", "-b:a", "192k",
-		"-f", "mp4",
-		tmpPath,
-	)
+	}
+	// Single-pass EBU R128 loudness normalisation. One pass is close enough
+	// for music videos and avoids doubling the transcode step. Set the
+	// target to 0 in config to skip.
+	if s.cfg.LoudnessTargetLUFS != 0 {
+		args = append(args, "-af", fmt.Sprintf("loudnorm=I=%.1f:LRA=11:TP=-1.5", s.cfg.LoudnessTargetLUFS))
+	}
+	args = append(args, "-f", "mp4", tmpPath)
+	cmd := exec.Command("ffmpeg", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {

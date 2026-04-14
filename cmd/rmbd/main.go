@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/alexkinch/retromusicbox/internal/catalogue"
 	"github.com/alexkinch/retromusicbox/internal/config"
@@ -99,7 +100,7 @@ func main() {
 	if cfg.IVR.Enabled {
 		ivrHandler := ivr.NewHandler(catService, queueService, hub, func() {
 			controller.NotifyQueueChange()
-		})
+		}, time.Duration(cfg.IVR.PostSubmitHoldSeconds)*time.Second)
 		ivrHandler.Register(mux)
 	}
 
@@ -139,7 +140,20 @@ func main() {
 // API Handlers
 
 type addCatalogueRequest struct {
+	YoutubeID   string `json:"youtube_id"`
+	PlaylistURL string `json:"playlist_url"`
+}
+
+type playlistFailure struct {
 	YoutubeID string `json:"youtube_id"`
+	Error     string `json:"error"`
+}
+
+type playlistImportResult struct {
+	Total   int                `json:"total"`
+	Added   []*catalogue.Entry `json:"added"`
+	Skipped []string           `json:"skipped"`
+	Failed  []playlistFailure  `json:"failed"`
 }
 
 type updateCatalogueRequest struct {
@@ -154,38 +168,66 @@ func handleAddCatalogue(cat *catalogue.Service, fetch *fetcher.Service) http.Han
 			httpError(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
-		if req.YoutubeID == "" {
-			httpError(w, "youtube_id is required", http.StatusBadRequest)
+		if req.YoutubeID == "" && req.PlaylistURL == "" {
+			httpError(w, "youtube_id or playlist_url is required", http.StatusBadRequest)
 			return
 		}
 
-		// Check if already exists
-		existing, _ := cat.GetByYoutubeID(req.YoutubeID)
-		if existing != nil {
-			jsonResponse(w, existing)
+		if req.PlaylistURL != "" {
+			ids, err := fetch.FetchPlaylistVideoIDs(req.PlaylistURL)
+			if err != nil {
+				httpError(w, fmt.Sprintf("Failed to list playlist: %v", err), http.StatusBadGateway)
+				return
+			}
+			result := playlistImportResult{Total: len(ids), Added: []*catalogue.Entry{}, Skipped: []string{}, Failed: []playlistFailure{}}
+			for _, id := range ids {
+				entry, err := importVideo(cat, fetch, id)
+				if err != nil {
+					if err == errAlreadyInCatalogue {
+						result.Skipped = append(result.Skipped, id)
+						continue
+					}
+					result.Failed = append(result.Failed, playlistFailure{YoutubeID: id, Error: err.Error()})
+					continue
+				}
+				result.Added = append(result.Added, entry)
+			}
+			w.WriteHeader(http.StatusCreated)
+			jsonResponse(w, result)
 			return
 		}
 
-		// Fetch video info
-		info, err := fetch.FetchVideoInfo(req.YoutubeID)
+		entry, err := importVideo(cat, fetch, req.YoutubeID)
+		if err == errAlreadyInCatalogue {
+			jsonResponse(w, entry)
+			return
+		}
 		if err != nil {
-			httpError(w, fmt.Sprintf("Failed to fetch video info: %v", err), http.StatusBadGateway)
+			httpError(w, err.Error(), http.StatusBadGateway)
 			return
 		}
-
-		// Download thumbnail
-		thumbPath, _ := fetch.DownloadThumbnail(req.YoutubeID, info.Thumbnail)
-
-		artist, title := info.CleanTitle()
-		entry, err := cat.Add(req.YoutubeID, title, artist, int(info.Duration), thumbPath)
-		if err != nil {
-			httpError(w, fmt.Sprintf("Failed to add: %v", err), http.StatusInternalServerError)
-			return
-		}
-
 		w.WriteHeader(http.StatusCreated)
 		jsonResponse(w, entry)
 	}
+}
+
+var errAlreadyInCatalogue = fmt.Errorf("already in catalogue")
+
+func importVideo(cat *catalogue.Service, fetch *fetcher.Service, youtubeID string) (*catalogue.Entry, error) {
+	if existing, _ := cat.GetByYoutubeID(youtubeID); existing != nil {
+		return existing, errAlreadyInCatalogue
+	}
+	info, err := fetch.FetchVideoInfo(youtubeID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch video info: %w", err)
+	}
+	thumbPath, _ := fetch.DownloadThumbnail(youtubeID, info.Thumbnail)
+	artist, title := info.CleanTitle()
+	entry, err := cat.Add(youtubeID, title, artist, int(info.Duration), thumbPath)
+	if err != nil {
+		return nil, fmt.Errorf("add to catalogue: %w", err)
+	}
+	return entry, nil
 }
 
 func handleListCatalogue(cat *catalogue.Service) http.HandlerFunc {

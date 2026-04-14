@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { useChannelSocket } from './hooks/useChannelSocket'
 import VideoPlayer from './components/VideoPlayer'
 import ChannelLogo from './components/ChannelLogo'
@@ -20,6 +20,17 @@ export default function App() {
   const [phoneNumber, setPhoneNumber] = useState('')
   const [transitionVideo, setTransitionVideo] = useState(null)
   const [callers, setCallers] = useState([])
+
+  // Catalogue rotates alphabetically by artist (then title) on screen, even
+  // though the backend stores it by code. Matches the original Box preview.
+  const sortedCatalogue = useMemo(() => {
+    const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true })
+    return [...catalogue].sort((a, b) => {
+      const byArtist = collator.compare(a.artist || '', b.artist || '')
+      if (byArtist !== 0) return byArtist
+      return collator.compare(a.title || '', b.title || '')
+    })
+  }, [catalogue])
 
   // Fetch catalogue on mount so overlays always have entries
   useEffect(() => {
@@ -119,7 +130,7 @@ export default function App() {
       {mode !== 'playing' && (
         <div className="channel-content">
           {mode === 'filler' && (
-            <FillerCatalogue catalogue={catalogue} phoneNumber={phoneNumber} />
+            <FillerCatalogue catalogue={sortedCatalogue} phoneNumber={phoneNumber} />
           )}
 
           {mode === 'transition' && (
@@ -134,15 +145,17 @@ export default function App() {
 
         <NowPlaying video={video} mode={mode} />
 
-        <BottomTicker
-          catalogue={catalogue}
-          queue={queue}
-          phoneNumber={phoneNumber}
-          mode={mode}
-          video={video}
-        />
-
-        <RequestDigits callers={callers} />
+        {callers.length === 0 ? (
+          <BottomTicker
+            catalogue={sortedCatalogue}
+            queue={queue}
+            phoneNumber={phoneNumber}
+            mode={mode}
+            video={video}
+          />
+        ) : (
+          <RequestDigits callers={callers} />
+        )}
       </div>
 
       {/* Layer 3: Scanlines (topmost) */}

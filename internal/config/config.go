@@ -29,13 +29,18 @@ type PlayoutConfig struct {
 }
 
 type FetcherConfig struct {
-	YtDlpPath         string `yaml:"yt_dlp_path"`
-	MaxResolution      int    `yaml:"max_resolution"`
-	CacheDir           string `yaml:"cache_dir"`
-	ReadyDir           string `yaml:"ready_dir"`
-	ThumbnailDir       string `yaml:"thumbnail_dir"`
-	MaxCacheGB         int    `yaml:"max_cache_gb"`
-	PrefetchThreshold  int    `yaml:"prefetch_threshold"`
+	YtDlpPath         string  `yaml:"yt_dlp_path"`
+	MaxResolution      int     `yaml:"max_resolution"`
+	CacheDir           string  `yaml:"cache_dir"`
+	ReadyDir           string  `yaml:"ready_dir"`
+	ThumbnailDir       string  `yaml:"thumbnail_dir"`
+	MaxCacheGB         int     `yaml:"max_cache_gb"`
+	PrefetchThreshold  int     `yaml:"prefetch_threshold"`
+	// LoudnessTargetLUFS is the integrated loudness target (EBU R128) applied
+	// by ffmpeg's `loudnorm` filter during transcode. 0 disables normalisation.
+	// -14 LUFS matches streaming-era norms (YouTube/Spotify-ish); -16 is the
+	// podcast/broadcast default.
+	LoudnessTargetLUFS float64 `yaml:"loudness_target_lufs"`
 }
 
 type QueueConfig struct {
@@ -49,7 +54,8 @@ type QueueConfig struct {
 // Twilio, Asterisk, a DIY DTMF decoder) can drive it by POSTing digits
 // to a session it creates.
 type IVRConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled              bool `yaml:"enabled"`
+	PostSubmitHoldSeconds int `yaml:"post_submit_hold_seconds"`
 }
 
 type DatabaseConfig struct {
@@ -78,19 +84,20 @@ func Load(path string) (*Config, error) {
 			AdMaxSeconds:             90,
 		},
 		Fetcher: FetcherConfig{
-			YtDlpPath:        "yt-dlp",
-			MaxResolution:     1080,
-			CacheDir:          "data/cache",
-			ReadyDir:          "data/ready",
-			ThumbnailDir:      "data/thumbnails",
-			MaxCacheGB:        50,
-			PrefetchThreshold: 3,
+			YtDlpPath:          "yt-dlp",
+			MaxResolution:      1080,
+			CacheDir:           "data/cache",
+			ReadyDir:           "data/ready",
+			ThumbnailDir:       "data/thumbnails",
+			MaxCacheGB:         50,
+			PrefetchThreshold:  3,
+			LoudnessTargetLUFS: -14.0,
 		},
 		Queue: QueueConfig{
 			MaxRequestsPerCallerPerHour: 3,
 			EmptyQueueAction:            "random_play",
 		},
-		IVR: IVRConfig{Enabled: true},
+		IVR: IVRConfig{Enabled: true, PostSubmitHoldSeconds: 5},
 		Database: DatabaseConfig{Path: "data/retromusicbox.db"},
 		Channel: ChannelConfig{
 			Width:              1280,
