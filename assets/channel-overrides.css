@@ -3,9 +3,10 @@
    Just save and refresh the browser.
    ================================ */
 
-/* Font: ModeSeven */
-.channel, .channel * {
-  font-family: "Geneva Blue" !important;
+/* Font: set once via the --channel-font custom property. Inherited by every
+   descendant of .channel; no !important or wildcard selector required. */
+.channel {
+  --channel-font: "URWLegothicW01-Bold";
 }
 
 /* Bottom ticker container — title safe zone, wider to compensate for scaleX */

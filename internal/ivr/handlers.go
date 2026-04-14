@@ -45,30 +45,33 @@ const (
 )
 
 type session struct {
-	ID        string        `json:"id"`
-	Digits    string        `json:"digits"`
-	Status    sessionStatus `json:"status"`
-	CallerID  string        `json:"caller_id,omitempty"`
-	CreatedAt time.Time     `json:"-"`
-	UpdatedAt time.Time     `json:"-"`
+	ID         string        `json:"id"`
+	Digits     string        `json:"digits"`
+	Status     sessionStatus `json:"status"`
+	CallerID   string        `json:"caller_id,omitempty"`
+	CreatedAt  time.Time     `json:"-"`
+	UpdatedAt  time.Time     `json:"-"`
+	submitting bool
 }
 
 type Handler struct {
-	mu        sync.Mutex
-	sessions  map[string]*session
-	catalogue *catalogue.Service
-	queue     *queue.Service
-	hub       *ws.Hub
-	onChange  func()
+	mu             sync.Mutex
+	sessions       map[string]*session
+	catalogue      *catalogue.Service
+	queue          *queue.Service
+	hub            *ws.Hub
+	onChange       func()
+	postSubmitHold time.Duration
 }
 
-func NewHandler(cat *catalogue.Service, q *queue.Service, hub *ws.Hub, onChange func()) *Handler {
+func NewHandler(cat *catalogue.Service, q *queue.Service, hub *ws.Hub, onChange func(), postSubmitHold time.Duration) *Handler {
 	h := &Handler{
-		sessions:  make(map[string]*session),
-		catalogue: cat,
-		queue:     q,
-		hub:       hub,
-		onChange:  onChange,
+		sessions:       make(map[string]*session),
+		catalogue:      cat,
+		queue:          q,
+		hub:            hub,
+		onChange:       onChange,
+		postSubmitHold: postSubmitHold,
 	}
 	go h.reaper()
 	return h
@@ -223,12 +226,13 @@ func (h *Handler) submit(w http.ResponseWriter, id string) {
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-	if s.Status != statusDialling {
+	if s.Status != statusDialling || s.submitting {
 		resp := h.snapshotLocked(s)
 		h.mu.Unlock()
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
+	s.submitting = true
 	code := s.Digits
 	callerID := s.CallerID
 	if callerID == "" {
@@ -254,6 +258,14 @@ func (h *Handler) submit(w http.ResponseWriter, id string) {
 		h.finalise(id, statusFail, err.Error(), entry, 0)
 		writeJSON(w, http.StatusOK, h.snapshot(id))
 		return
+	}
+
+	// Successful request — hold the completed code on screen (and on the phone
+	// line) for a configurable beat before confirming with "Thanx!". Mirrors
+	// the deliberate pause the original Box had on accepted requests only;
+	// rejections flash "Try again" instantly.
+	if h.postSubmitHold > 0 {
+		time.Sleep(h.postSubmitHold)
 	}
 
 	h.finalise(id, statusSuccess, "", entry, position)

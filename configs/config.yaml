@@ -19,6 +19,10 @@ fetcher:
   thumbnail_dir: "data/thumbnails"
   max_cache_gb: 50
   prefetch_threshold: 3
+  # EBU R128 loudness target applied by ffmpeg's loudnorm filter during
+  # transcode, so every cached video lands at the same perceived volume.
+  # -14 matches YouTube/Spotify-ish, -16 is podcast/broadcast. 0 disables.
+  loudness_target_lufs: -14.0
 
 queue:
   max_requests_per_caller_per_hour: 3
@@ -29,6 +33,12 @@ ivr:
   # Exposes POST /api/ivr/sessions (+ /digit, /submit, DELETE) for any voice
   # front-end to drive on-channel digit entry. Set false to disable entirely.
   enabled: true
+  # On a successful request, hold the completed 3-digit code on screen (and on
+  # the phone line) for this many seconds before flipping to "Thanx!". Mirrors
+  # the deliberate beat the original Box service had on accepted requests.
+  # Failed requests (unknown code, rate-limited, dedup) flip to "Try again"
+  # immediately with no hold.
+  post_submit_hold_seconds: 5
 
 database:
   path: "data/retromusicbox.db"

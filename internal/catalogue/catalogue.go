@@ -68,15 +68,20 @@ func (s *Service) nextCode() (string, error) {
 		return "", err
 	}
 
+	// Codes run 100–999 to match the original Box service (and to keep
+	// every code the same three-digit width on screen and in speech).
 	if !maxCode.Valid || maxCode.String == "" {
-		return "001", nil
+		return "100", nil
 	}
 
 	var num int
 	fmt.Sscanf(maxCode.String, "%d", &num)
+	if num < 100 {
+		num = 99
+	}
 	num++
 	if num > 999 {
-		return "", fmt.Errorf("catalogue full: maximum 999 entries")
+		return "", fmt.Errorf("catalogue full: maximum 900 entries (100-999)")
 	}
 	return fmt.Sprintf("%03d", num), nil
 }

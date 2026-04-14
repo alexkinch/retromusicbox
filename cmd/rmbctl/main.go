@@ -54,6 +54,7 @@ func printUsage() {
 	fmt.Println("Commands:")
 	fmt.Println("  init-db                          Initialise the database")
 	fmt.Println("  add --youtube <ID>               Add a video by YouTube ID")
+	fmt.Println("  add --playlist <URL>             Add every video from a YouTube playlist URL")
 	fmt.Println("  edit --code <CODE> [--artist <A>] [--title <T>]")
 	fmt.Println("                                   Edit artist/title for a catalogue entry")
 	fmt.Println("  remove --code <CODE>             Remove a video by catalogue code")
@@ -86,14 +87,23 @@ func initDB(cfg *config.Config) {
 
 func addVideo(cfg *config.Config) {
 	ytID := ""
+	playlistURL := ""
 	for i := 2; i < len(os.Args); i++ {
-		if os.Args[i] == "--youtube" && i+1 < len(os.Args) {
-			ytID = os.Args[i+1]
-			break
+		switch os.Args[i] {
+		case "--youtube":
+			if i+1 < len(os.Args) {
+				ytID = os.Args[i+1]
+				i++
+			}
+		case "--playlist":
+			if i+1 < len(os.Args) {
+				playlistURL = os.Args[i+1]
+				i++
+			}
 		}
 	}
-	if ytID == "" {
-		log.Fatal("Usage: rmbctl add --youtube <YOUTUBE_ID>")
+	if ytID == "" && playlistURL == "" {
+		log.Fatal("Usage: rmbctl add --youtube <YOUTUBE_ID> | --playlist <PLAYLIST_URL>")
 	}
 
 	database, err := db.Open(cfg.Database.Path)
@@ -103,30 +113,69 @@ func addVideo(cfg *config.Config) {
 	defer database.Close()
 
 	cat := catalogue.NewService(database)
+	fetch := fetcher.NewService(cfg.Fetcher, cat, nil)
 
-	// Check if already exists
-	existing, _ := cat.GetByYoutubeID(ytID)
-	if existing != nil {
-		fmt.Printf("Already in catalogue: [%s] %s - %s\n", existing.Code, existing.Artist, existing.Title)
+	if playlistURL != "" {
+		fmt.Printf("Listing playlist %s...\n", playlistURL)
+		ids, err := fetch.FetchPlaylistVideoIDs(playlistURL)
+		if err != nil {
+			log.Fatalf("Failed to list playlist: %v", err)
+		}
+		fmt.Printf("Found %d videos.\n", len(ids))
+		added, skipped, failed := 0, 0, 0
+		for i, id := range ids {
+			fmt.Printf("[%d/%d] %s: ", i+1, len(ids), id)
+			status := addOne(cat, fetch, id)
+			fmt.Println(status.msg)
+			switch status.kind {
+			case addOK:
+				added++
+			case addSkip:
+				skipped++
+			case addFail:
+				failed++
+			}
+		}
+		fmt.Printf("\nDone. Added %d, skipped %d, failed %d.\n", added, skipped, failed)
 		return
 	}
 
-	// Fetch info with yt-dlp
 	fmt.Printf("Fetching info for %s...\n", ytID)
-	fetch := fetcher.NewService(cfg.Fetcher, cat, nil)
+	status := addOne(cat, fetch, ytID)
+	fmt.Println(status.msg)
+	if status.kind == addFail {
+		os.Exit(1)
+	}
+}
+
+type addResultKind int
+
+const (
+	addOK addResultKind = iota
+	addSkip
+	addFail
+)
+
+type addResult struct {
+	kind addResultKind
+	msg  string
+}
+
+func addOne(cat *catalogue.Service, fetch *fetcher.Service, ytID string) addResult {
+	if existing, _ := cat.GetByYoutubeID(ytID); existing != nil {
+		return addResult{addSkip, fmt.Sprintf("already in catalogue as [%s] %s - %s", existing.Code, existing.Artist, existing.Title)}
+	}
 	info, err := fetch.FetchVideoInfo(ytID)
 	if err != nil {
-		log.Fatalf("yt-dlp failed: %v", err)
+		return addResult{addFail, fmt.Sprintf("yt-dlp failed: %v", err)}
 	}
-
 	artist, title := info.CleanTitle()
-
-	entry, err := cat.Add(ytID, title, artist, int(info.Duration), "")
+	thumbPath, _ := fetch.DownloadThumbnail(ytID, info.Thumbnail)
+	entry, err := cat.Add(ytID, title, artist, int(info.Duration), thumbPath)
 	if err != nil {
-		log.Fatalf("Failed to add: %v", err)
+		return addResult{addFail, fmt.Sprintf("failed to add: %v", err)}
 	}
-
-	fmt.Printf("Added: [%s] %s - %s (%ds)\n", entry.Code, entry.Artist, entry.Title, derefInt(entry.DurationSeconds))
+	return addResult{addOK, fmt.Sprintf("added [%s] %s - %s (%ds)", entry.Code, entry.Artist, entry.Title, derefInt(entry.DurationSeconds))}
 }
 
 func editVideo(cfg *config.Config) {
