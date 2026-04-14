@@ -7,10 +7,10 @@ import (
 	"os/exec"
 	"text/tabwriter"
 
-	"github.com/alexkinch/thebox/internal/catalogue"
-	"github.com/alexkinch/thebox/internal/config"
-	"github.com/alexkinch/thebox/internal/db"
-	"github.com/alexkinch/thebox/internal/fetcher"
+	"github.com/alexkinch/retromusicbox/internal/catalogue"
+	"github.com/alexkinch/retromusicbox/internal/config"
+	"github.com/alexkinch/retromusicbox/internal/db"
+	"github.com/alexkinch/retromusicbox/internal/fetcher"
 )
 
 func main() {
@@ -47,9 +47,9 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("boxctl - The Box catalogue manager")
+	fmt.Println("rmbctl - retromusicbox catalogue manager")
 	fmt.Println()
-	fmt.Println("Usage: boxctl <command> [args]")
+	fmt.Println("Usage: rmbctl <command> [args]")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  init-db                          Initialise the database")
@@ -65,7 +65,7 @@ func printUsage() {
 
 func loadConfig() *config.Config {
 	configPath := "configs/config.yaml"
-	if envPath := os.Getenv("BOX_CONFIG"); envPath != "" {
+	if envPath := os.Getenv("RMB_CONFIG"); envPath != "" {
 		configPath = envPath
 	}
 	cfg, err := config.Load(configPath)
@@ -93,7 +93,7 @@ func addVideo(cfg *config.Config) {
 		}
 	}
 	if ytID == "" {
-		log.Fatal("Usage: boxctl add --youtube <YOUTUBE_ID>")
+		log.Fatal("Usage: rmbctl add --youtube <YOUTUBE_ID>")
 	}
 
 	database, err := db.Open(cfg.Database.Path)
@@ -153,7 +153,7 @@ func editVideo(cfg *config.Config) {
 		}
 	}
 	if code == "" {
-		log.Fatal("Usage: boxctl edit --code <CODE> [--artist <ARTIST>] [--title <TITLE>]")
+		log.Fatal("Usage: rmbctl edit --code <CODE> [--artist <ARTIST>] [--title <TITLE>]")
 	}
 	if artist == "" && title == "" {
 		log.Fatal("At least one of --artist or --title is required")
@@ -195,7 +195,7 @@ func removeVideo(cfg *config.Config) {
 		}
 	}
 	if code == "" {
-		log.Fatal("Usage: boxctl remove --code <CODE>")
+		log.Fatal("Usage: rmbctl remove --code <CODE>")
 	}
 
 	database, err := db.Open(cfg.Database.Path)
@@ -245,7 +245,7 @@ func searchVideos(cfg *config.Config) {
 		}
 	}
 	if query == "" {
-		log.Fatal("Usage: boxctl search --query <QUERY>")
+		log.Fatal("Usage: rmbctl search --query <QUERY>")
 	}
 
 	database, err := db.Open(cfg.Database.Path)

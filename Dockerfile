@@ -13,9 +13,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-COPY --from=frontend /app/cmd/boxd/static ./cmd/boxd/static
-RUN CGO_ENABLED=1 go build -o boxd ./cmd/boxd
-RUN CGO_ENABLED=1 go build -o boxctl ./cmd/boxctl
+COPY --from=frontend /app/cmd/rmbd/static ./cmd/rmbd/static
+RUN CGO_ENABLED=1 go build -o rmbd ./cmd/rmbd
+RUN CGO_ENABLED=1 go build -o rmbctl ./cmd/rmbctl
 
 # Runtime
 FROM alpine:3.19
@@ -23,7 +23,7 @@ RUN apk add --no-cache ffmpeg python3 py3-pip ca-certificates && \
     pip3 install --break-system-packages yt-dlp
 
 WORKDIR /app
-COPY --from=backend /app/boxd /app/boxctl /app/
+COPY --from=backend /app/rmbd /app/rmbctl /app/
 COPY configs/ ./configs/
 COPY assets/ ./assets/
 
@@ -31,4 +31,4 @@ RUN mkdir -p data/cache data/ready data/thumbnails
 
 EXPOSE 8080
 
-CMD ["./boxd", "--config", "configs/config.yaml"]
+CMD ["./rmbd", "--config", "configs/config.yaml"]

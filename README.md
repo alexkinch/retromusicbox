@@ -1,14 +1,14 @@
-# The Box
+# retromusicbox
 
-A modern recreation of the iconic 1990s interactive music video TV channel. Viewers call a phone number, enter a catalogue number, and their requested music video plays on air with an on-screen digit display showing upcoming requests.
+A modern recreation of the 1990s interactive music video TV channel format. Viewers call a phone number (or use a web page), enter a 3-digit catalogue code, and their requested music video plays on air with an on-screen digit display showing upcoming requests.
 
 ## Architecture
 
-- **Go backend** (`boxd`) — single binary serving the API, WebSocket, media files, IVR webhooks, and embedded React app
+- **Go backend** (`rmbd`) — single binary serving the API, WebSocket, media files, IVR session API, and embedded React app
 - **React frontend** — full-screen channel renderer (video playback, digit display, filler screens)
 - **SQLite** (WAL mode) — catalogue and request queue
 - **yt-dlp + FFmpeg** — on-demand YouTube video fetching and transcoding
-- **Jambonz** — IVR platform for phone-in requests
+- **Service-agnostic IVR** — simple session REST API; plug in Jambonz, Twilio, or anything else
 
 ## Quick Start
 
@@ -31,14 +31,14 @@ make build
 
 ```bash
 # Initialise the database
-./boxctl init-db
+./rmbctl init-db
 
 # Add videos to the catalogue
-./boxctl add --youtube "dQw4w9WgXcQ"
-./boxctl add --youtube "y6120QOlsfU"
+./rmbctl add --youtube "dQw4w9WgXcQ"
+./rmbctl add --youtube "y6120QOlsfU"
 
 # Start the server
-./boxd --config configs/config.yaml
+./rmbd --config configs/config.yaml
 ```
 
 ### URLs
@@ -49,25 +49,39 @@ make build
 | `http://localhost:8080/request` | Web request page |
 | `http://localhost:8080/api/catalogue` | Catalogue API |
 | `http://localhost:8080/api/queue` | Queue API |
+| `http://localhost:8080/api/ivr/sessions` | IVR session API |
 | `http://localhost:8080/ws` | WebSocket (playout state) |
 
 ### Docker
 
 ```bash
-docker build -t thebox .
-docker run -p 8080:8080 -v $(pwd)/data:/app/data thebox
+docker build -t retromusicbox .
+docker run -p 8080:8080 -v $(pwd)/data:/app/data retromusicbox
 ```
 
-## CLI (`boxctl`)
+## CLI (`rmbctl`)
 
 ```
-boxctl init-db                    # Initialise the database
-boxctl add --youtube <ID>         # Add a video by YouTube ID
-boxctl remove --code <CODE>       # Remove by catalogue code
-boxctl list                       # List all catalogue entries
-boxctl search --query <QUERY>     # Search by artist/title
-boxctl cache-all                  # Fetch and transcode all videos
+rmbctl init-db                    # Initialise the database
+rmbctl add --youtube <ID>         # Add a video by YouTube ID
+rmbctl remove --code <CODE>       # Remove by catalogue code
+rmbctl list                       # List all catalogue entries
+rmbctl search --query <QUERY>     # Search by artist/title
+rmbctl cache-all                  # Fetch and transcode all videos
 ```
+
+## IVR
+
+The backend exposes a small service-agnostic session API. Any IVR provider (Jambonz, Twilio, Asterisk, a Raspberry Pi DTMF decoder) can drive it with four REST calls:
+
+```
+POST   /api/ivr/sessions                 # create session, returns {session_id}
+POST   /api/ivr/sessions/{id}/digit      # body: {"digit": "5"}
+POST   /api/ivr/sessions/{id}/submit     # finalise (optional — auto-fires at 3 digits)
+DELETE /api/ivr/sessions/{id}            # caller hung up
+```
+
+Up to 3 sessions may be active concurrently. Each session broadcasts `dial_update` WebSocket messages so the channel overlay shows the call icon, live digit entry, and accept/reject feedback (patent step 32 — "DISPLAY SELECTION #").
 
 ## Chrome Capture Pipeline
 

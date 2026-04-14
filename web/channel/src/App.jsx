@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { useBoxSocket } from './hooks/useBoxSocket'
+import { useChannelSocket } from './hooks/useChannelSocket'
 import VideoPlayer from './components/VideoPlayer'
-import BoxLogo from './components/BoxLogo'
+import ChannelLogo from './components/ChannelLogo'
 import NowPlaying from './components/NowPlaying'
 import BottomTicker from './components/BottomTicker'
 import RequestDigits from './components/RequestDigits'
@@ -73,7 +73,7 @@ export default function App() {
     }
   }, [])
 
-  const { connected, sendMessage } = useBoxSocket(handleMessage)
+  const { connected, sendMessage } = useChannelSocket(handleMessage)
 
   const handleVideoEnded = useCallback(() => {
     sendMessage({ type: 'video_ended' })
@@ -87,7 +87,7 @@ export default function App() {
     return (
       <div className="channel" onClick={() => setStarted(true)} style={{ cursor: 'pointer' }}>
         <div className="click-to-start">
-          <div className="ident-title" style={{ fontSize: '48px' }}>THE BOX</div>
+          <div className="ident-title" style={{ fontSize: '48px' }}>RETROMUSICBOX</div>
           <div style={{
             fontFamily: "'STV5730A', monospace",
             fontSize: '14px',
@@ -130,7 +130,7 @@ export default function App() {
 
       {/* Layer 2: Overlays (always on top) */}
       <div className="channel-overlays">
-        <BoxLogo />
+        <ChannelLogo />
 
         <NowPlaying video={video} mode={mode} />
 

@@ -1,166 +1,406 @@
+// Package ivr exposes a small service-agnostic session API so any IVR
+// front-end (Jambonz, Twilio, Asterisk, a Pi with a DTMF decoder, a test
+// script) can drive on-channel digit entry with four REST calls:
+//
+//	POST   /api/ivr/sessions             -> {session_id}
+//	POST   /api/ivr/sessions/{id}/digit  -> {"digit": "5"}
+//	POST   /api/ivr/sessions/{id}/submit -> finalise early (optional)
+//	DELETE /api/ivr/sessions/{id}
+//
+// At most MaxConcurrent sessions (default 3) are accepted at once; the
+// patent allowed multiple simultaneous callers on-screen and the frontend
+// overlay is already wired up for three. Each session broadcasts
+// `dial_update` WebSocket events so the channel shows the phone icon,
+// digit stream, and accept/reject feedback (patent FIG. 1 step 32,
+// "DISPLAY SELECTION #").
 package ivr
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
-	"log"
 	"net/http"
+	"strings"
+	"sync"
+	"time"
 
-	"github.com/alexkinch/thebox/internal/catalogue"
-	"github.com/alexkinch/thebox/internal/config"
-	"github.com/alexkinch/thebox/internal/queue"
+	"github.com/alexkinch/retromusicbox/internal/catalogue"
+	"github.com/alexkinch/retromusicbox/internal/queue"
+	"github.com/alexkinch/retromusicbox/internal/ws"
 )
 
+const (
+	MaxConcurrent    = 3
+	CodeLength       = 3
+	SessionTTL       = 30 * time.Second
+	ResultLingerTime = 4 * time.Second
+)
+
+type sessionStatus string
+
+const (
+	statusDialling sessionStatus = "dialling"
+	statusSuccess  sessionStatus = "success"
+	statusFail     sessionStatus = "fail"
+)
+
+type session struct {
+	ID        string        `json:"id"`
+	Digits    string        `json:"digits"`
+	Status    sessionStatus `json:"status"`
+	CallerID  string        `json:"caller_id,omitempty"`
+	CreatedAt time.Time     `json:"-"`
+	UpdatedAt time.Time     `json:"-"`
+}
+
 type Handler struct {
-	cfg       config.IVRConfig
+	mu        sync.Mutex
+	sessions  map[string]*session
 	catalogue *catalogue.Service
 	queue     *queue.Service
+	hub       *ws.Hub
 	onChange  func()
 }
 
-func NewHandler(cfg config.IVRConfig, cat *catalogue.Service, q *queue.Service, onChange func()) *Handler {
-	return &Handler{
-		cfg:       cfg,
+func NewHandler(cat *catalogue.Service, q *queue.Service, hub *ws.Hub, onChange func()) *Handler {
+	h := &Handler{
+		sessions:  make(map[string]*session),
 		catalogue: cat,
 		queue:     q,
+		hub:       hub,
 		onChange:  onChange,
 	}
+	go h.reaper()
+	return h
 }
 
-// Jambonz webhook JSON structures
-
-type JambonzCallPayload struct {
-	CallSid  string `json:"call_sid"`
-	From     string `json:"from"`
-	To       string `json:"to"`
-	CallerID string `json:"caller_id"`
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/ivr/sessions", h.handleCreate)
+	mux.HandleFunc("POST /api/ivr/sessions/{id}/digit", h.handleDigit)
+	mux.HandleFunc("POST /api/ivr/sessions/{id}/submit", h.handleSubmit)
+	mux.HandleFunc("DELETE /api/ivr/sessions/{id}", h.handleDelete)
+	mux.HandleFunc("GET /api/ivr/sessions/{id}", h.handleGet)
 }
 
-type JambonzDTMFPayload struct {
-	CallSid string `json:"call_sid"`
-	Digits  string `json:"digits"`
-	From    string `json:"from"`
+// --- handlers ---------------------------------------------------------------
+
+type createRequest struct {
+	CallerID string `json:"caller_id,omitempty"`
 }
 
-type JambonzVerb map[string]interface{}
+type createResponse struct {
+	SessionID string `json:"session_id"`
+	ExpiresIn int    `json:"expires_in_seconds"`
+}
 
-// HandleCall is the initial call webhook handler.
-func (h *Handler) HandleCall(w http.ResponseWriter, r *http.Request) {
-	var payload JambonzCallPayload
-	json.NewDecoder(r.Body).Decode(&payload)
-	log.Printf("[ivr] incoming call from %s", payload.From)
+func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
+	var req createRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	resp := []JambonzVerb{
-		{
-			"verb": "play",
-			"url":  "/" + h.cfg.WelcomeJingle,
-		},
-		{
-			"verb":       "say",
-			"text":       "Welcome to The Box. Enter your three digit catalogue number followed by hash.",
-			"synthesizer": map[string]string{"vendor": "google", "language": "en-GB"},
-		},
-		{
-			"verb":        "gather",
-			"input":       []string{"dtmf"},
-			"numDigits":   3,
-			"finishOnKey": "#",
-			"timeout":     h.cfg.GatherTimeoutSeconds,
-			"actionHook":  h.cfg.WebhookBasePath + "/dtmf",
-		},
+	h.mu.Lock()
+	if h.activeCount() >= MaxConcurrent {
+		h.mu.Unlock()
+		writeError(w, http.StatusTooManyRequests, "all lines are busy")
+		return
+	}
+	id := newSessionID()
+	now := time.Now()
+	s := &session{
+		ID:        id,
+		Digits:    "",
+		Status:    statusDialling,
+		CallerID:  req.CallerID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	h.sessions[id] = s
+	h.mu.Unlock()
+
+	h.broadcastDialUpdate()
+
+	writeJSON(w, http.StatusCreated, createResponse{
+		SessionID: id,
+		ExpiresIn: int(SessionTTL / time.Second),
+	})
+}
+
+type digitRequest struct {
+	Digit string `json:"digit"`
+}
+
+type sessionResponse struct {
+	ID     string        `json:"id"`
+	Digits string        `json:"digits"`
+	Status sessionStatus `json:"status"`
+	// Populated on status=success
+	Code     string `json:"code,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Artist   string `json:"artist,omitempty"`
+	Position int    `json:"position,omitempty"`
+	// Populated on status=fail
+	Reason string `json:"reason,omitempty"`
+}
+
+func (h *Handler) handleDigit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var req digitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid body")
+		return
+	}
+	d := strings.TrimSpace(req.Digit)
+	if len(d) != 1 || d[0] < '0' || d[0] > '9' {
+		if d == "#" || d == "*" {
+			// Treat # as submit, * as clear
+			if d == "#" {
+				h.submit(w, id)
+				return
+			}
+			h.mu.Lock()
+			s, ok := h.sessions[id]
+			if !ok {
+				h.mu.Unlock()
+				writeError(w, http.StatusNotFound, "session not found")
+				return
+			}
+			s.Digits = ""
+			s.Status = statusDialling
+			s.UpdatedAt = time.Now()
+			resp := h.snapshotLocked(s)
+			h.mu.Unlock()
+			h.broadcastDialUpdate()
+			writeJSON(w, http.StatusOK, resp)
+			return
+		}
+		writeError(w, http.StatusBadRequest, "digit must be one of 0-9, #, *")
+		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	h.mu.Lock()
+	s, ok := h.sessions[id]
+	if !ok {
+		h.mu.Unlock()
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if s.Status != statusDialling {
+		resp := h.snapshotLocked(s)
+		h.mu.Unlock()
+		writeJSON(w, http.StatusConflict, resp)
+		return
+	}
+	if len(s.Digits) >= CodeLength {
+		// Already full — ignore extra digits
+		resp := h.snapshotLocked(s)
+		h.mu.Unlock()
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	s.Digits += d
+	s.UpdatedAt = time.Now()
+	full := len(s.Digits) == CodeLength
+	resp := h.snapshotLocked(s)
+	h.mu.Unlock()
+
+	h.broadcastDialUpdate()
+
+	if full {
+		h.submit(w, id)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
-// HandleDTMF processes the gathered digits.
-func (h *Handler) HandleDTMF(w http.ResponseWriter, r *http.Request) {
-	var payload JambonzDTMFPayload
-	json.NewDecoder(r.Body).Decode(&payload)
-	log.Printf("[ivr] DTMF received: %s from %s", payload.Digits, payload.From)
+func (h *Handler) handleSubmit(w http.ResponseWriter, r *http.Request) {
+	h.submit(w, r.PathValue("id"))
+}
 
-	code := payload.Digits
+func (h *Handler) submit(w http.ResponseWriter, id string) {
+	h.mu.Lock()
+	s, ok := h.sessions[id]
+	if !ok {
+		h.mu.Unlock()
+		writeError(w, http.StatusNotFound, "session not found")
+		return
+	}
+	if s.Status != statusDialling {
+		resp := h.snapshotLocked(s)
+		h.mu.Unlock()
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	code := s.Digits
+	callerID := s.CallerID
+	if callerID == "" {
+		callerID = "ivr:" + id
+	}
+	h.mu.Unlock()
+
+	if len(code) != CodeLength {
+		h.finalise(id, statusFail, "incomplete code", nil, 0)
+		writeJSON(w, http.StatusOK, h.snapshot(id))
+		return
+	}
+
 	entry, err := h.catalogue.GetByCode(code)
 	if err != nil || entry == nil {
-		h.respondInvalid(w, payload.From, 1)
+		h.finalise(id, statusFail, "unknown code", nil, 0)
+		writeJSON(w, http.StatusOK, h.snapshot(id))
 		return
 	}
 
-	req, position, err := h.queue.Add(code, payload.From)
+	_, position, err := h.queue.Add(code, callerID)
 	if err != nil {
-		log.Printf("[ivr] queue add error: %v", err)
-		resp := []JambonzVerb{
-			{
-				"verb":       "say",
-				"text":       fmt.Sprintf("Sorry, %s. Please try again later.", err.Error()),
-				"synthesizer": map[string]string{"vendor": "google", "language": "en-GB"},
-			},
-			{"verb": "hangup"},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		h.finalise(id, statusFail, err.Error(), entry, 0)
+		writeJSON(w, http.StatusOK, h.snapshot(id))
 		return
 	}
 
-	_ = req // used for logging if needed
-
-	resp := []JambonzVerb{
-		{
-			"verb": "say",
-			"text": fmt.Sprintf(
-				"You have requested %s by %s. Your video is number %d in the queue. Thank you for calling The Box.",
-				entry.Title, entry.Artist, position,
-			),
-			"synthesizer": map[string]string{"vendor": "google", "language": "en-GB"},
-		},
-		{"verb": "hangup"},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
-
+	h.finalise(id, statusSuccess, "", entry, position)
 	if h.onChange != nil {
 		h.onChange()
 	}
+	writeJSON(w, http.StatusOK, h.snapshot(id))
 }
 
-func (h *Handler) respondInvalid(w http.ResponseWriter, from string, attempt int) {
-	if attempt >= h.cfg.MaxAttempts {
-		resp := []JambonzVerb{
-			{
-				"verb":       "say",
-				"text":       "Sorry, that number was not recognised. Goodbye.",
-				"synthesizer": map[string]string{"vendor": "google", "language": "en-GB"},
-			},
-			{"verb": "hangup"},
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	h.mu.Lock()
+	_, ok := h.sessions[id]
+	if ok {
+		delete(h.sessions, id)
+	}
+	h.mu.Unlock()
+	if ok {
+		h.broadcastDialUpdate()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	snap := h.snapshot(id)
+	if snap.ID == "" {
+		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
-
-	resp := []JambonzVerb{
-		{
-			"verb":       "say",
-			"text":       "Sorry, that number was not recognised. Please try again.",
-			"synthesizer": map[string]string{"vendor": "google", "language": "en-GB"},
-		},
-		{
-			"verb":        "gather",
-			"input":       []string{"dtmf"},
-			"numDigits":   3,
-			"finishOnKey": "#",
-			"timeout":     h.cfg.GatherTimeoutSeconds,
-			"actionHook":  h.cfg.WebhookBasePath + "/dtmf",
-		},
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, snap)
 }
 
-// HandleStatus processes call status updates.
-func (h *Handler) HandleStatus(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+// --- internals --------------------------------------------------------------
+
+func (h *Handler) finalise(id string, status sessionStatus, reason string, entry *catalogue.Entry, position int) {
+	h.mu.Lock()
+	s, ok := h.sessions[id]
+	if !ok {
+		h.mu.Unlock()
+		return
+	}
+	s.Status = status
+	s.UpdatedAt = time.Now()
+	_ = reason
+	_ = entry
+	_ = position
+	h.mu.Unlock()
+
+	h.broadcastDialUpdate()
+}
+
+func (h *Handler) snapshot(id string) sessionResponse {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s, ok := h.sessions[id]
+	if !ok {
+		return sessionResponse{}
+	}
+	return h.snapshotLocked(s)
+}
+
+func (h *Handler) snapshotLocked(s *session) sessionResponse {
+	return sessionResponse{
+		ID:     s.ID,
+		Digits: s.Digits,
+		Status: s.Status,
+	}
+}
+
+func (h *Handler) activeCount() int {
+	n := 0
+	for _, s := range h.sessions {
+		if s.Status == statusDialling {
+			n++
+		}
+	}
+	return n
+}
+
+// reaper evicts idle sessions. Dialling sessions expire after SessionTTL,
+// finalised sessions linger for ResultLingerTime so the on-screen overlay
+// has time to display the accept/reject state before disappearing.
+func (h *Handler) reaper() {
+	t := time.NewTicker(1 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		h.sweep()
+	}
+}
+
+func (h *Handler) sweep() {
+	now := time.Now()
+	changed := false
+	h.mu.Lock()
+	for id, s := range h.sessions {
+		ttl := SessionTTL
+		if s.Status != statusDialling {
+			ttl = ResultLingerTime
+		}
+		if now.Sub(s.UpdatedAt) > ttl {
+			delete(h.sessions, id)
+			changed = true
+		}
+	}
+	h.mu.Unlock()
+	if changed {
+		h.broadcastDialUpdate()
+	}
+}
+
+type dialUpdate struct {
+	Type    string         `json:"type"`
+	Callers []dialSnapshot `json:"callers"`
+}
+
+type dialSnapshot struct {
+	ID     string        `json:"id"`
+	Digits string        `json:"digits"`
+	Status sessionStatus `json:"status"`
+}
+
+func (h *Handler) broadcastDialUpdate() {
+	if h.hub == nil {
+		return
+	}
+	h.mu.Lock()
+	callers := make([]dialSnapshot, 0, len(h.sessions))
+	for _, s := range h.sessions {
+		callers = append(callers, dialSnapshot{ID: s.ID, Digits: s.Digits, Status: s.Status})
+	}
+	h.mu.Unlock()
+	h.hub.BroadcastEvent(dialUpdate{Type: "dial_update", Callers: callers})
+}
+
+func newSessionID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}
+
+func writeJSON(w http.ResponseWriter, code int, body interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+func writeError(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
 }

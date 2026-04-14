@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/alexkinch/thebox/internal/catalogue"
-	"github.com/alexkinch/thebox/internal/config"
-	"github.com/alexkinch/thebox/internal/db"
-	"github.com/alexkinch/thebox/internal/fetcher"
-	"github.com/alexkinch/thebox/internal/ivr"
-	"github.com/alexkinch/thebox/internal/playout"
-	"github.com/alexkinch/thebox/internal/queue"
-	"github.com/alexkinch/thebox/internal/ws"
+	"github.com/alexkinch/retromusicbox/internal/catalogue"
+	"github.com/alexkinch/retromusicbox/internal/config"
+	"github.com/alexkinch/retromusicbox/internal/db"
+	"github.com/alexkinch/retromusicbox/internal/fetcher"
+	"github.com/alexkinch/retromusicbox/internal/ivr"
+	"github.com/alexkinch/retromusicbox/internal/playout"
+	"github.com/alexkinch/retromusicbox/internal/queue"
+	"github.com/alexkinch/retromusicbox/internal/ws"
 )
 
 //go:embed static/*
@@ -95,14 +95,12 @@ func main() {
 	thumbFS := http.StripPrefix("/media/thumbnails/", http.FileServer(http.Dir(cfg.Fetcher.ThumbnailDir)))
 	mux.Handle("GET /media/thumbnails/", thumbFS)
 
-	// Jambonz IVR webhooks
+	// IVR session API (service-agnostic — any DTMF/voice front-end can drive it)
 	if cfg.IVR.Enabled {
-		ivrHandler := ivr.NewHandler(cfg.IVR, catService, queueService, func() {
+		ivrHandler := ivr.NewHandler(catService, queueService, hub, func() {
 			controller.NotifyQueueChange()
 		})
-		mux.HandleFunc("POST "+cfg.IVR.WebhookBasePath+"/call", ivrHandler.HandleCall)
-		mux.HandleFunc("POST "+cfg.IVR.WebhookBasePath+"/dtmf", ivrHandler.HandleDTMF)
-		mux.HandleFunc("POST "+cfg.IVR.WebhookBasePath+"/status", ivrHandler.HandleStatus)
+		ivrHandler.Register(mux)
 	}
 
 	// Static assets (jingles etc)
@@ -129,7 +127,7 @@ func main() {
 	mux.Handle("GET /", fileServer)
 
 	addr := fmt.Sprintf(":%d", cfg.Server.Port)
-	log.Printf("The Box is live on http://localhost%s", addr)
+	log.Printf("retromusicbox is live on http://localhost%s", addr)
 	log.Printf("Channel: http://localhost%s/channel", addr)
 	log.Printf("Request page: http://localhost%s/request", addr)
 
@@ -397,7 +395,7 @@ func handleRequestPage(channelCfg config.ChannelConfig) http.HandlerFunc {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>THE BOX - Request a Video</title>
+<title>RETROMUSICBOX - Request a Video</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #000; color: #fff; font-family: 'Courier New', monospace; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -417,7 +415,7 @@ func handleRequestPage(channelCfg config.ChannelConfig) http.HandlerFunc {
 </head>
 <body>
 <div class="container">
-  <h1>THE BOX</h1>
+  <h1>RETROMUSICBOX</h1>
   <p class="subtitle">REQUEST A VIDEO</p>
   <div class="form-group">
     <input type="text" id="code" maxlength="3" placeholder="000" pattern="\d{3}">

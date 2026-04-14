@@ -10,11 +10,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexkinch/thebox/internal/catalogue"
-	"github.com/alexkinch/thebox/internal/config"
-	"github.com/alexkinch/thebox/internal/fetcher"
-	"github.com/alexkinch/thebox/internal/queue"
-	"github.com/alexkinch/thebox/internal/ws"
+	"github.com/alexkinch/retromusicbox/internal/catalogue"
+	"github.com/alexkinch/retromusicbox/internal/config"
+	"github.com/alexkinch/retromusicbox/internal/fetcher"
+	"github.com/alexkinch/retromusicbox/internal/queue"
+	"github.com/alexkinch/retromusicbox/internal/ws"
 )
 
 type State string

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-export function useBoxSocket(onMessage) {
+export function useChannelSocket(onMessage) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef(null)
   const reconnectTimer = useRef(null)

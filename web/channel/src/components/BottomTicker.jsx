@@ -28,12 +28,12 @@ export default function BottomTicker({ catalogue, queue, phoneNumber, mode, vide
     if (phoneNumber) {
       msgs.push('Any Video, Any Time...Call ' + phoneNumber)
     }
-    msgs.push('The Box - Your Music, Your Choice')
+    msgs.push('RetroMusicBox - Your Music, Your Choice')
     msgs.push('Under 18? Get Parent\'s Permission Before Calling')
     if (phoneNumber) {
       msgs.push('Call Now To Request Your Video!')
     }
-    msgs.push('The Box - You Control The Music')
+    msgs.push('RetroMusicBox - You Control The Music')
     return msgs
   }, [phoneNumber])
 

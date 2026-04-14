@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: '../../cmd/boxd/static',
+    outDir: '../../cmd/rmbd/static',
     emptyOutDir: true,
     assetsDir: 'static',
   },

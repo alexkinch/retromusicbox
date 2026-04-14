@@ -26,17 +26,14 @@ queue:
   empty_queue_action: "random_play"
 
 ivr:
+  # Exposes POST /api/ivr/sessions (+ /digit, /submit, DELETE) for any voice
+  # front-end to drive on-channel digit entry. Set false to disable entirely.
   enabled: true
-  webhook_base_path: "/jambonz"
-  welcome_jingle: "assets/jingles/welcome.wav"
-  max_attempts: 3
-  gather_timeout_seconds: 10
-  phone_number: "+44XXXXXXXXXX"
 
 database:
-  path: "data/box.db"
+  path: "data/retromusicbox.db"
 
 channel:
   width: 720
   height: 576
-  phone_number_display: "0900 THE BOX"
+  phone_number_display: "0900 RETROMUSICBOX"

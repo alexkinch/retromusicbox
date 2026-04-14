@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alexkinch/thebox/internal/catalogue"
-	"github.com/alexkinch/thebox/internal/config"
-	"github.com/alexkinch/thebox/internal/queue"
+	"github.com/alexkinch/retromusicbox/internal/catalogue"
+	"github.com/alexkinch/retromusicbox/internal/config"
+	"github.com/alexkinch/retromusicbox/internal/queue"
 )
 
 type VideoInfo struct {

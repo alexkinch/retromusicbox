@@ -44,13 +44,12 @@ type QueueConfig struct {
 	EmptyQueueAction            string `yaml:"empty_queue_action"`
 }
 
+// IVRConfig controls the service-agnostic IVR session API. The API
+// itself is fixed at /api/ivr/sessions — any voice front-end (Jambonz,
+// Twilio, Asterisk, a DIY DTMF decoder) can drive it by POSTing digits
+// to a session it creates.
 type IVRConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	WebhookBasePath      string `yaml:"webhook_base_path"`
-	WelcomeJingle        string `yaml:"welcome_jingle"`
-	MaxAttempts          int    `yaml:"max_attempts"`
-	GatherTimeoutSeconds int    `yaml:"gather_timeout_seconds"`
-	PhoneNumber          string `yaml:"phone_number"`
+	Enabled bool `yaml:"enabled"`
 }
 
 type DatabaseConfig struct {
@@ -91,15 +90,12 @@ func Load(path string) (*Config, error) {
 			MaxRequestsPerCallerPerHour: 3,
 			EmptyQueueAction:            "random_play",
 		},
-		IVR: IVRConfig{
-			MaxAttempts:          3,
-			GatherTimeoutSeconds: 10,
-		},
-		Database: DatabaseConfig{Path: "data/box.db"},
+		IVR: IVRConfig{Enabled: true},
+		Database: DatabaseConfig{Path: "data/retromusicbox.db"},
 		Channel: ChannelConfig{
 			Width:              1280,
 			Height:             720,
-			PhoneNumberDisplay: "0900 THE BOX",
+			PhoneNumberDisplay: "0900 RETROMUSICBOX",
 		},
 	}
 

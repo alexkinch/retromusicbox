@@ -1,4 +1,4 @@
-module github.com/alexkinch/thebox
+module github.com/alexkinch/retromusicbox
 
 go 1.24.7
 
