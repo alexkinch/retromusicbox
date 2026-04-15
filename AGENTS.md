@@ -74,19 +74,44 @@ configs/config.yaml       — Runtime config
 
 ## IVR Session API
 
-All endpoints live under `/api/ivr/sessions`. Up to `ivr.MaxConcurrent` (default 3) sessions may be active at once; additional `POST` attempts return `429 Too Many Requests`.
+All endpoints live under `/api/ivr/sessions`. Up to `ivr.MaxConcurrent` (default 3) concurrently-active sessions may be accepted at once; additional `POST` attempts return `429 Too Many Requests`. "Active" means the session is in `dialling` or `validated` — `success`/`fail` sessions linger for the on-screen result display but do not block new callers.
 
-| Method | Path                            | Purpose |
-|--------|---------------------------------|---------|
-| POST   | `/api/ivr/sessions`             | Create session. Body `{caller_id?}`. Returns `{session_id, expires_in_seconds}`. |
-| POST   | `/api/ivr/sessions/{id}/digit`  | Body `{digit: "5"}`. Accepts `0-9`, `#` (submit), `*` (clear). Auto-submits at 3 digits. |
-| POST   | `/api/ivr/sessions/{id}/submit` | Finalise early. Returns final `sessionResponse`. |
-| DELETE | `/api/ivr/sessions/{id}`        | Caller hung up. |
-| GET    | `/api/ivr/sessions/{id}`        | Inspect current state. |
+A session moves through four explicit states:
 
-Sessions TTL:
+```
+  dialling  -> caller is entering digits
+  validated -> backend confirmed the code resolves to a catalogue
+               entry and is waiting for the caller to press 1
+               (confirm) or 2 (cancel). On-screen overlay keeps
+               showing the digits; the artist/title are sent in
+               the response body so the IVR can speak them on the
+               phone, but the channel itself never flashes song
+               details during the confirm step (matches the
+               original Box behaviour).
+  success   -> caller confirmed, request is on the queue. "Thanx!"
+  fail      -> unknown code or rejected by the queue. "Try again"
+```
+
+| Method | Path                              | Purpose |
+|--------|-----------------------------------|---------|
+| POST   | `/api/ivr/sessions`               | Create session. Body `{caller_id?}`. Returns `{session_id, expires_in_seconds}`. |
+| POST   | `/api/ivr/sessions/{id}/digit`    | Body `{digit: "5"}`. State-aware — see below. |
+| POST   | `/api/ivr/sessions/{id}/submit`   | Finalise dialling early (validate current digits). Usually unnecessary because `/digit` auto-submits at 3 digits. |
+| POST   | `/api/ivr/sessions/{id}/confirm`  | Commit a validated session to the queue. Transitions to `success`. |
+| POST   | `/api/ivr/sessions/{id}/cancel`   | Clear digits and return to empty `dialling` so the caller can try again without hanging up. |
+| DELETE | `/api/ivr/sessions/{id}`          | Caller hung up. |
+| GET    | `/api/ivr/sessions/{id}`          | Inspect current state. |
+
+**Digit dispatching** is state-aware so a dumb DTMF forwarder can drive the whole flow by POSTing every keypress to `/digit`:
+
+- In `dialling`: `0`-`9` append, `#` submits, `*` clears digits.
+- In `validated`: `1` confirms (same as `/confirm`), `2` or `*` cancels (same as `/cancel`), other digits are ignored.
+- In `success`/`fail`: digits are ignored until the session is reaped.
+
+Session TTLs:
 - Dialling: 30s idle (`ivr.SessionTTL`).
-- Accepted / rejected: 4s linger so the overlay has time to render (`ivr.ResultLingerTime`).
+- Validated: `ivr.confirm_ttl_seconds` (default 15s) — the IVR prompt plus thinking time must fit inside this.
+- Success / fail: 4s linger so the overlay has time to render (`ivr.ResultLingerTime`).
 
 A reaper goroutine sweeps expired sessions once per second.
 
@@ -98,18 +123,29 @@ Every state change broadcasts a `dial_update` WebSocket event:
 {
   "type": "dial_update",
   "callers": [
-    {"id": "a1b2c3d4e5f6g7h8", "digits": "10",  "status": "dialling"},
-    {"id": "...",              "digits": "986", "status": "success"},
-    {"id": "...",              "digits": "999", "status": "fail"}
+    {"id": "a1", "digits": "10",  "status": "dialling"},
+    {"id": "b2", "digits": "345", "status": "validated",
+     "code": "345", "artist": "BLUR", "title": "Song 2"},
+    {"id": "c3", "digits": "345", "status": "success",
+     "code": "345", "artist": "BLUR", "title": "Song 2"},
+    {"id": "d4", "digits": "999", "status": "fail"}
   ]
 }
 ```
 
-`RequestDigits.jsx` consumes this and renders a phone icon plus the entered digits for each active caller, matching the patent's FIG. 1 step 32 "DISPLAY SELECTION #" requirement.
+`RequestDigits.jsx` consumes this and renders a phone icon plus the entered digits, the validated selection, or the accept/reject text for each active caller. It takes over the bottom-ticker slot while any caller is active, matching the patent's FIG. 1 step 32 "DISPLAY SELECTION #" requirement.
 
 ### Writing an adapter
 
-Any voice provider becomes a thin shim: on inbound call → `POST /sessions`; on each DTMF → `POST /sessions/{id}/digit`; on hangup → `DELETE /sessions/{id}`. None of that glue lives in this repo by design — keep provider-specific shapes at the edge.
+Any voice provider becomes a thin shim:
+
+1. On inbound call → `POST /sessions`. If it returns 429, play "all lines busy" and hang up.
+2. Play a greeting, then forward each DTMF keypress to `POST /sessions/{id}/digit`.
+3. When the digit response comes back with `status: "validated"`, the response body contains `code`, `artist`, `title` — play "You chose X, <artist> — <title>, press 1 to confirm or 2 to cancel" and keep forwarding DTMF.
+4. When the status flips to `success`, play "Thanx!" and hang up. On `fail`, play "Try again" and either loop back to step 2 or hang up.
+5. On caller hangup at any point → `DELETE /sessions/{id}`.
+
+None of that glue lives in this repo by design — keep provider-specific shapes at the edge. See the companion `retromusicbox-telephony` repo for a reference FreeSWITCH + Lua implementation.
 
 ## Ad Breaks (Stop Sets)
 

@@ -100,7 +100,7 @@ func main() {
 	if cfg.IVR.Enabled {
 		ivrHandler := ivr.NewHandler(catService, queueService, hub, func() {
 			controller.NotifyQueueChange()
-		}, time.Duration(cfg.IVR.PostSubmitHoldSeconds)*time.Second)
+		}, time.Duration(cfg.IVR.ConfirmTTLSeconds)*time.Second)
 		ivrHandler.Register(mux)
 	}
 

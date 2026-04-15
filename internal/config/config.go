@@ -54,8 +54,11 @@ type QueueConfig struct {
 // Twilio, Asterisk, a DIY DTMF decoder) can drive it by POSTing digits
 // to a session it creates.
 type IVRConfig struct {
-	Enabled              bool `yaml:"enabled"`
-	PostSubmitHoldSeconds int `yaml:"post_submit_hold_seconds"`
+	Enabled bool `yaml:"enabled"`
+	// ConfirmTTLSeconds is how long a session can sit in the `validated`
+	// state waiting for the caller to press 1 (confirm) or 2 (cancel)
+	// before the reaper drops it. 0 uses the built-in default (15s).
+	ConfirmTTLSeconds int `yaml:"confirm_ttl_seconds"`
 }
 
 type DatabaseConfig struct {
@@ -97,7 +100,7 @@ func Load(path string) (*Config, error) {
 			MaxRequestsPerCallerPerHour: 3,
 			EmptyQueueAction:            "random_play",
 		},
-		IVR: IVRConfig{Enabled: true, PostSubmitHoldSeconds: 5},
+		IVR: IVRConfig{Enabled: true, ConfirmTTLSeconds: 15},
 		Database: DatabaseConfig{Path: "data/retromusicbox.db"},
 		Channel: ChannelConfig{
 			Width:              1280,
