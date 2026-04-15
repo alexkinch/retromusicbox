@@ -30,15 +30,16 @@ queue:
   empty_queue_action: "random_play"
 
 ivr:
-  # Exposes POST /api/ivr/sessions (+ /digit, /submit, DELETE) for any voice
-  # front-end to drive on-channel digit entry. Set false to disable entirely.
+  # Exposes POST /api/ivr/sessions (+ /digit, /submit, /confirm, /cancel,
+  # DELETE) for any voice front-end to drive on-channel digit entry. Set
+  # false to disable entirely.
   enabled: true
-  # On a successful request, hold the completed 3-digit code on screen (and on
-  # the phone line) for this many seconds before flipping to "Thanx!". Mirrors
-  # the deliberate beat the original Box service had on accepted requests.
-  # Failed requests (unknown code, rate-limited, dedup) flip to "Try again"
-  # immediately with no hold.
-  post_submit_hold_seconds: 5
+  # How long a session can sit in the `validated` state (after a valid
+  # 3-digit code is accepted but before the caller presses 1 to confirm
+  # or 2 to cancel) before the reaper drops it. The IVR prompt should
+  # comfortably fit inside this window plus a couple of seconds of
+  # thinking time.
+  confirm_ttl_seconds: 15
 
 database:
   path: "data/retromusicbox.db"
