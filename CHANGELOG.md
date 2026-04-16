@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/alexkinch/retromusicbox/compare/v0.3.0...v0.4.0) (2026-04-16)
+
+
+### Features
+
+* **channel:** expose CRT effect toggle via config ([#21](https://github.com/alexkinch/retromusicbox/issues/21)) ([75a9ada](https://github.com/alexkinch/retromusicbox/commit/75a9ada42ec1124c6de48f2d9a62adb08dd4a956))
+
 ## [0.3.0](https://github.com/alexkinch/retromusicbox/compare/v0.2.1...v0.3.0) (2026-04-15)
 
 
