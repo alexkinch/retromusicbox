@@ -17,6 +17,13 @@ COPY --from=frontend /app/cmd/rmbd/static ./cmd/rmbd/static
 RUN CGO_ENABLED=1 go build -o rmbd ./cmd/rmbd
 RUN CGO_ENABLED=1 go build -o rmbctl ./cmd/rmbctl
 
+# Release-asset extraction stage. `type=local` exports of the full backend
+# stage fail because the Go module cache directories are read-only; this thin
+# stage holds only the binaries so buildx can copy them out cleanly.
+FROM scratch AS release-bins
+COPY --from=backend /app/rmbd /rmbd
+COPY --from=backend /app/rmbctl /rmbctl
+
 # Runtime
 FROM alpine:3.23
 RUN apk add --no-cache ffmpeg python3 py3-pip ca-certificates deno && \

@@ -90,21 +90,21 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Export backend-stage release assets
+      - name: Export release binaries
         uses: docker/build-push-action@v7
         with:
           context: .
-          target: backend
+          target: release-bins
           platforms: linux/amd64
-          outputs: type=local,dest=/tmp/backend-export
+          outputs: type=local,dest=/tmp/release-bins
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Package release assets
         run: |
           mkdir -p dist
-          install -m 0755 /tmp/backend-export/app/rmbd dist/rmbd-linux-amd64-musl
-          install -m 0755 /tmp/backend-export/app/rmbctl dist/rmbctl-linux-amd64-musl
+          install -m 0755 /tmp/release-bins/rmbd dist/rmbd-linux-amd64-musl
+          install -m 0755 /tmp/release-bins/rmbctl dist/rmbctl-linux-amd64-musl
           sha256sum dist/rmbd-linux-amd64-musl dist/rmbctl-linux-amd64-musl > dist/SHA256SUMS-linux-amd64-musl.txt
 
       - name: Log in to GHCR
