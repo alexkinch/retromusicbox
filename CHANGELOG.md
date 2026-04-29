@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/retrocabletv/retromusicbox/compare/v0.6.0...v0.7.0) (2026-04-29)
+
+
+### Features
+
+* **rmbctl:** add operator request command with optional --now preempt ([#37](https://github.com/retrocabletv/retromusicbox/issues/37)) ([2d281d0](https://github.com/retrocabletv/retromusicbox/commit/2d281d03f63192a8be59fe2be74d423e3e9685b4))
+
 ## [0.6.0](https://github.com/retrocabletv/retromusicbox/compare/v0.5.2...v0.6.0) (2026-04-27)
 
 
