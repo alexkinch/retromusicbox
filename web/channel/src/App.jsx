@@ -116,7 +116,6 @@ export default function App() {
         <div className="click-to-start">
           <div className="ident-title" style={{ fontSize: '48px' }}>RETROMUSICBOX</div>
           <div style={{
-            fontFamily: "'STV5730A', monospace",
             fontSize: '14px',
             fontWeight: 'bold',
             color: '#00FFFF',

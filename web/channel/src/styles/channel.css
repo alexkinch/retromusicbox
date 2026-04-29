@@ -7,6 +7,22 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: 'Tektur Channel';
+  src: url('/fonts/TekturSemiCondensed-ExtraBold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Tektur Channel';
+  src: url('/fonts/TekturSemiCondensed-Black.woff2') format('woff2');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ===== Base ===== */
 * {
   margin: 0;
@@ -32,7 +48,7 @@ html, body, #root {
    at runtime without rebuilding the SPA.
 */
 .channel {
-  --channel-font: 'STV5730A', monospace;
+  --channel-font: 'Tektur Channel', 'STV5730A', monospace;
   /* Safe zones for 720x576 SD PAL output. Two nested rings following the
      broadcast convention:
        --action-safe-*  — outer ring. All visual overlays (ticker, logo,
