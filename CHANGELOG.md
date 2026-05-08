@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/retrocabletv/retromusicbox/compare/v0.8.0...v0.8.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **deps:** Bump github.com/mattn/go-sqlite3 ([#44](https://github.com/retrocabletv/retromusicbox/issues/44)) ([cc10b11](https://github.com/retrocabletv/retromusicbox/commit/cc10b11b0183c289674f1400b19181e4e194365d))
+
 ## [0.8.0](https://github.com/retrocabletv/retromusicbox/compare/v0.7.1...v0.8.0) (2026-04-29)
 
 
