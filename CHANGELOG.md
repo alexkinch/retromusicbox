@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.2](https://github.com/retrocabletv/retromusicbox/compare/v0.8.1...v0.8.2) (2026-06-01)
+
+
+### Bug Fixes
+
+* **deps-dev:** Bump the npm-dependencies group ([#48](https://github.com/retrocabletv/retromusicbox/issues/48)) ([3fb17d0](https://github.com/retrocabletv/retromusicbox/commit/3fb17d0c7c00c23854433f21eb2cb523b8a9e292))
+* **deps-dev:** Bump the npm-dependencies group ([#50](https://github.com/retrocabletv/retromusicbox/issues/50)) ([2f7eb1c](https://github.com/retrocabletv/retromusicbox/commit/2f7eb1ca6ef03da4362225c972e4f126bed6dd70))
+
 ## [0.8.1](https://github.com/retrocabletv/retromusicbox/compare/v0.8.0...v0.8.1) (2026-05-14)
 
 
